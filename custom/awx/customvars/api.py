@@ -1121,7 +1121,7 @@ class ProjectFilesListView(APIView):
     GET /api/v2/projects/{pk}/files/?path=roles/img_docker
     Returns a directory listing (one level).
     """
-    def get(self, request, pk):
+    def get(self, request, pk, **kwargs):
         project_path = _get_project_path(pk)
         rel = request.query_params.get('path', '')
         target = _safe_resolve(project_path, rel) if rel else project_path.resolve()
@@ -1149,7 +1149,7 @@ class ProjectFileContentView(APIView):
     PUT /api/v2/projects/{pk}/files/content/?path=...
         Body: {"content": "---\n..."}
     """
-    def get(self, request, pk):
+    def get(self, request, pk, **kwargs):
         project_path = _get_project_path(pk)
         rel = request.query_params.get('path', '')
         if not rel:
@@ -1175,7 +1175,7 @@ class ProjectFileContentView(APIView):
             'suffix': target.suffix,
         })
 
-    def put(self, request, pk):
+    def put(self, request, pk, **kwargs):
         if not request.user.is_superuser:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only superusers may write project files.')
@@ -1223,7 +1223,7 @@ class ProjectFileLintView(APIView):
     Body: {"content": "---\n...", "path": "roles/img_docker/tasks/main.yml"}
     Returns: {"valid": bool, "errors": [{"line", "col", "message", "severity"}]}
     """
-    def post(self, request, pk):
+    def post(self, request, pk, **kwargs):
         # Just verify the project exists
         _get_project_path(pk)
 

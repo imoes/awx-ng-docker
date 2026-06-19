@@ -14,6 +14,7 @@ from awx.customvars.api import (
     ProjectFilesListView,
     ProjectFileContentView,
     ProjectFileLintView,
+    ProjectPlaysView,
 )
 
 from awx.api.views import (
@@ -75,6 +76,8 @@ urls = [
     re_path(r'^(?P<pk>[0-9]+)/files/$', ProjectFilesListView.as_view(), name='project_files_list'),
     re_path(r'^(?P<pk>[0-9]+)/files/content/$', ProjectFileContentView.as_view(), name='project_file_content'),
     re_path(r'^(?P<pk>[0-9]+)/files/lint/$', ProjectFileLintView.as_view(), name='project_file_lint'),
+    # awx-ng: Play-Metadaten je Playbook (hosts/roles/tags) für die Playbook-Verwaltung
+    re_path(r'^(?P<pk>[0-9]+)/plays/$', ProjectPlaysView.as_view(), name='project_plays'),
 ]
 
 __all__ = ['urls']

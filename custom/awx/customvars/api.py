@@ -11,12 +11,13 @@ Endpunkte:
   POST /api/v2/hosts/{id}/assign_roles/                  — host_roles schreiben
   POST /api/v2/tools/hash_password/                      — sha512-Hash erzeugen
   GET  /api/v2/locations/                                — Locations (Sites)
-  GET  /api/v2/locations/{id}/subnets/                   — Subnetze einer Location
-  POST /api/v2/locations/reconcile/                      — NetBox-Reconcile
+  POST /api/v2/locations/reconcile/                      — NetBox-Reconcile (Sites only)
 """
 
 import json
 import os
+import re
+import shutil
 
 try:
     import crypt as _crypt
@@ -33,11 +34,11 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 
 from awx.api.permissions import IsSystemAdminOrAuditor
-from awx.main.models import Project, JobTemplate, Host
+from awx.main.models import Project, JobTemplate, Host, Instance
 
 from .models import (
     RoleVariable, RoleTag, RoleHandler, RoleScan,
-    Location, Subnet, ExecutionNodeLocation,
+    Location, ExecutionNodeLocation,
 )
 
 
@@ -70,7 +71,7 @@ class ExecutionNodeLocationSerializer(drf_serializers.ModelSerializer):
         model = ExecutionNodeLocation
         fields = [
             'id', 'instance_hostname', 'location', 'location_name',
-            'ssh_user', 'ssh_credential_id', 'ansible_cfg',
+            'ssh_user', 'ssh_credential_id', 'ssh_private_key', 'ansible_cfg',
             'description', 'created_at', 'updated_at',
         ]
 
@@ -94,22 +95,20 @@ class RoleScanSerializer(drf_serializers.ModelSerializer):
 
 
 class LocationSerializer(drf_serializers.ModelSerializer):
+    instance_group_id = drf_serializers.SerializerMethodField()
+
+    def get_instance_group_id(self, obj):
+        from awx.main.models import InstanceGroup
+        ig = InstanceGroup.objects.filter(name=obj.name).first()
+        return ig.id if ig else None
+
     class Meta:
         model = Location
         fields = [
-            'id', 'name', 'description',
+            'id', 'name', 'description', 'instance_group_id',
             'netbox_site_id', 'netbox_site_slug',
             'source', 'last_synced_at',
             'created_at', 'updated_at',
-        ]
-
-
-class SubnetSerializer(drf_serializers.ModelSerializer):
-    class Meta:
-        model = Subnet
-        fields = [
-            'id', 'location', 'cidr', 'vlan', 'gateway',
-            'netbox_prefix_id', 'source', 'created_at',
         ]
 
 
@@ -292,21 +291,6 @@ class LocationDetailView(generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /api/v2/locations/{id}/"""
     serializer_class = LocationSerializer
     queryset = Location.objects.all()
-
-
-class SubnetListView(generics.ListCreateAPIView):
-    """GET/POST /api/v2/locations/{location_id}/subnets/"""
-    serializer_class = SubnetSerializer
-
-    def get_queryset(self):
-        location_id = self.kwargs['location_id']
-        get_object_or_404(Location, pk=location_id)
-        return Subnet.objects.filter(location_id=location_id)
-
-    def perform_create(self, serializer):
-        location_id = self.kwargs['location_id']
-        location = get_object_or_404(Location, pk=location_id)
-        serializer.save(location=location)
 
 
 # ── Survey-Generierung ────────────────────────────────────────────────────────
@@ -872,12 +856,12 @@ class HostRoleVariableDetailView(APIView):
         return Response({'var_name': var_name, 'is_overridden': False, 'removed': existed})
 
 
-# ─── Group-Variablen (analog Host; single source of truth = group.variables) ───
+# ─── Group variables (mirrors Host; single source of truth = group.variables) ───
 
 class GroupAssignRolesView(APIView):
     """
     POST /api/v2/groups/{pk}/assign_roles/  — Body: {"roles": [...]}
-    Setzt host_roles in den nativen Group.variables (Baseline für Gruppen-Mitglieder).
+    Sets host_roles in the native Group.variables (baseline for the group's members).
     """
     def post(self, request, pk, **kwargs):
         from awx.main.models import Group
@@ -899,8 +883,8 @@ class GroupAssignRolesView(APIView):
 class GroupRoleVariableListView(APIView):
     """
     GET /api/v2/groups/{pk}/role_variables/
-    Rollen-Variablen einer Gruppe — aus host_roles (group.variables) + RoleVariable-Defaults.
-    Effektiver Wert / Override kommt aus den nativen group.variables (group_vars).
+    A group's role variables — from host_roles (group.variables) + RoleVariable defaults.
+    The effective value / override comes from the native group.variables (group_vars).
     """
     def get(self, request, pk, **kwargs):
         from awx.main.models import Group
@@ -951,8 +935,8 @@ class GroupRoleVariableListView(APIView):
 
 class GroupRoleVariableDetailView(APIView):
     """
-    PATCH  /api/v2/groups/{pk}/role_variables/{var_name}/  — Wert in group.variables setzen
-    DELETE /api/v2/groups/{pk}/role_variables/{var_name}/  — Variable entfernen
+    PATCH  /api/v2/groups/{pk}/role_variables/{var_name}/  — set a value in group.variables
+    DELETE /api/v2/groups/{pk}/role_variables/{var_name}/  — remove the variable
     """
     def _get_group(self, request, pk):
         from awx.main.models import Group
@@ -986,6 +970,17 @@ class GroupRoleVariableDetailView(APIView):
         return Response({'var_name': var_name, 'is_overridden': False, 'removed': existed})
 
 
+def _resolve_location_instance_group(location_id):
+    """Return the AWX InstanceGroup for a Location UUID, or None."""
+    if not location_id:
+        return None
+    from awx.main.models import InstanceGroup
+    loc = Location.objects.filter(pk=location_id).first()
+    if not loc:
+        return None
+    return InstanceGroup.objects.filter(name=loc.name).first()
+
+
 class HostRunView(APIView):
     """
     GET  /api/v2/hosts/{pk}/run/  — Job-Templates die dieses Host-Inventory nutzen
@@ -1014,9 +1009,14 @@ class HostRunView(APIView):
         if not jt_id:
             return Response({'error': 'job_template_id required'}, status=status.HTTP_400_BAD_REQUEST)
         jt = get_object_or_404(JobTemplate, pk=jt_id)
+        limit = request.data.get('limit', host.name)
+        ig = _resolve_location_instance_group(request.data.get('location_id'))
 
         try:
-            job = jt.create_unified_job(limit=host.name, _eager_fields={'launched_by': request.user})
+            job = jt.create_unified_job(limit=limit, _eager_fields={'created_by': request.user})
+            if ig:
+                job.instance_group = ig
+                job.save(update_fields=['instance_group'])
             job.signal_start()
         except Exception as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -1029,6 +1029,28 @@ class HostRunView(APIView):
 
 # ── Runner ↔ Site-Zuordnung (Execution Node Locations) ───────────────────────
 
+def _sync_runner_instance_group(enl):
+    """Keep the AWX InstanceGroup for enl.location in sync with runner assignment.
+
+    Called after every create/update/delete of ExecutionNodeLocation.
+    Skips silently if the runner's hostname is not yet registered in AWX.
+    """
+    from awx.main.models import Instance, InstanceGroup
+    try:
+        instance = Instance.objects.get(hostname=enl.instance_hostname)
+    except Instance.DoesNotExist:
+        return
+    # Remove instance from every non-system location group first
+    system_groups = {'controlplane', 'default'}
+    for ig in instance.rampart_groups.all():
+        if ig.name not in system_groups:
+            ig.instances.remove(instance)
+    # Add to the new location group when a location is assigned
+    if enl.location_id:
+        ig, _ = InstanceGroup.objects.get_or_create(name=enl.location.name)
+        ig.instances.add(instance)
+
+
 class ExecutionNodeLocationListView(generics.ListCreateAPIView):
     """GET/POST /api/v2/execution_node_locations/"""
     serializer_class = ExecutionNodeLocationSerializer
@@ -1036,20 +1058,110 @@ class ExecutionNodeLocationListView(generics.ListCreateAPIView):
     filter_backends = [filters.SearchFilter]
     search_fields = ['instance_hostname', 'ssh_user', 'description']
 
+    def perform_create(self, serializer):
+        enl = serializer.save()
+        _sync_runner_instance_group(enl)
+
 
 class ExecutionNodeLocationDetailView(generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /api/v2/execution_node_locations/{id}/"""
     serializer_class = ExecutionNodeLocationSerializer
     queryset = ExecutionNodeLocation.objects.all()
 
+    def perform_update(self, serializer):
+        enl = serializer.save()
+        _sync_runner_instance_group(enl)
 
-# ── Phase 5: NetBox-Reconcile für Locations/Subnets ──────────────────────────
+    def perform_destroy(self, instance):
+        # Detach from instance group before deleting the record
+        instance.location_id = None
+        _sync_runner_instance_group(instance)
+        instance.delete()
+
+
+# ── Runner-Registrierung (non-K8s) ───────────────────────────────────────────
+# AWX blockt POST /api/v2/instances/ ausserhalb von Kubernetes. Diese Endpunkte
+# registrieren Execution Nodes über Instance.objects.register() (wie es auch der
+# awx-manage provision_instance Befehl tut) und umgehen damit den K8s-Guard.
+
+def _runner_summary(inst):
+    return {
+        'id': inst.id,
+        'hostname': inst.hostname,
+        'node_type': inst.node_type,
+        'node_state': inst.node_state,
+        'enabled': inst.enabled,
+        'managed': inst.managed,
+        'capacity': inst.capacity,
+    }
+
+
+class RunnerRegisterView(APIView):
+    """
+    POST /api/v2/runners/register/
+    Body: {"hostname": "ansible03", "node_type": "execution"}
+
+    Registers an execution/hop node as an unmanaged Instance.  The hostname must
+    match the Receptor node id configured on the remote host.  The remote host
+    still needs Receptor + ansible-runner set up (see deploy/PROXIES.md).
+    """
+    permission_classes = [IsSystemAdminOrAuditor]
+
+    def post(self, request, **kwargs):
+        hostname = (request.data.get('hostname') or '').strip()
+        node_type = request.data.get('node_type', 'execution')
+        if not hostname:
+            return Response({'error': 'hostname required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not re.match(r'^[\w.-]+$', hostname):
+            return Response({'error': 'invalid hostname'}, status=status.HTTP_400_BAD_REQUEST)
+        if node_type not in ('execution', 'hop'):
+            return Response({'error': 'node_type must be execution or hop'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            changed, inst = Instance.objects.register(
+                hostname=hostname, node_type=node_type, defaults={'managed': False}
+            )
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        resp = _runner_summary(inst)
+        resp['changed'] = changed
+        return Response(resp, status=status.HTTP_201_CREATED if changed else status.HTTP_200_OK)
+
+
+class RunnerDeprovisionView(APIView):
+    """
+    POST /api/v2/runners/deprovision/
+    Body: {"hostname": "ansible03"}
+
+    Removes an unmanaged execution/hop node from the database.  Refuses to touch
+    managed or control/hybrid nodes.
+    """
+    permission_classes = [IsSystemAdminOrAuditor]
+
+    def post(self, request, **kwargs):
+        hostname = (request.data.get('hostname') or '').strip()
+        if not hostname:
+            return Response({'error': 'hostname required'}, status=status.HTTP_400_BAD_REQUEST)
+        inst = Instance.objects.filter(hostname=hostname).first()
+        if not inst:
+            return Response({'error': 'instance not found'}, status=status.HTTP_404_NOT_FOUND)
+        if inst.managed or inst.node_type in ('control', 'hybrid'):
+            return Response(
+                {'error': 'cannot deprovision a managed or control/hybrid node'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        inst.delete()
+        return Response({'hostname': hostname, 'deprovisioned': True})
+
+
+# ── Phase 5: NetBox-Reconcile für Locations ──────────────────────────────────
 
 class LocationReconcileView(APIView):
     """
     POST /api/v2/locations/reconcile/
 
-    Zieht Sites + Prefixes aus NetBox und legt fehlende Locations/Subnets an.
+    Zieht Sites aus NetBox und legt fehlende Locations an.
     Überschreibt keine lokalen Edits (Drift-Meldung statt Overwrite).
 
     NetBox-Zugangsdaten aus Django-Settings (Schlüssel NETBOX_URL / NETBOX_TOKEN)
@@ -1059,7 +1171,6 @@ class LocationReconcileView(APIView):
       {
         "created_locations": [...],
         "updated_locations": [...],
-        "created_subnets":   [...],
         "drift":             [...],   ← lokale Felder die von NetBox abweichen
         "errors":            [...]
       }
@@ -1101,7 +1212,6 @@ class LocationReconcileView(APIView):
         errors = []
         created_locations = []
         updated_locations = []
-        created_subnets = []
         drift = []
 
         try:
@@ -1141,54 +1251,9 @@ class LocationReconcileView(APIView):
                     updated_locations.append(site_name)
             site_id_to_location[site_id] = loc
 
-        # Prefixes → Subnets
-        try:
-            nb_prefixes = nb_get('/ipam/prefixes/')
-        except Exception as exc:
-            errors.append(f'NetBox /ipam/prefixes/ nicht erreichbar: {exc}')
-            nb_prefixes = []
-
-        for prefix in nb_prefixes:
-            # Scope auf Site prüfen (NetBox 4.x: scope_type + scope)
-            site_id = None
-            scope = prefix.get('scope')
-            scope_type = prefix.get('scope_type', '')
-            if scope and 'dcim.site' in scope_type:
-                site_id = scope.get('id') if isinstance(scope, dict) else None
-            # Fallback: älteres NetBox mit direktem site-Feld
-            if site_id is None and isinstance(prefix.get('site'), dict):
-                site_id = prefix['site'].get('id')
-
-            if site_id not in site_id_to_location:
-                continue
-
-            loc = site_id_to_location[site_id]
-            cidr = prefix.get('prefix', '')
-            if not cidr:
-                continue
-
-            subnet, created = Subnet.objects.get_or_create(
-                location=loc,
-                cidr=cidr,
-                defaults={
-                    'netbox_prefix_id': prefix['id'],
-                    'source': 'netbox',
-                    'vlan': (prefix.get('vlan') or {}).get('vid') if isinstance(prefix.get('vlan'), dict) else None,
-                },
-            )
-            if created:
-                created_subnets.append(f'{cidr} @ {loc.name}')
-            else:
-                if subnet.netbox_prefix_id != prefix['id'] and subnet.netbox_prefix_id is not None:
-                    drift.append({'subnet': cidr, 'location': loc.name,
-                                  'field': 'netbox_prefix_id',
-                                  'local': subnet.netbox_prefix_id,
-                                  'netbox': prefix['id']})
-
         return Response({
             'created_locations': created_locations,
             'updated_locations': updated_locations,
-            'created_subnets': created_subnets,
             'drift': drift,
             'errors': errors,
         })
@@ -1338,7 +1403,94 @@ class ProjectFileContentView(APIView):
         except Exception:
             pass  # git not available or not a repo — write succeeded anyway
 
-        return Response({'path': rel, 'saved': True})
+        # Auto-rescan DB when a role defaults or vars file is saved
+        rescan_info = None
+        m = re.match(r'^roles/([^/]+)/(defaults|vars)/main\.yml$', rel)
+        if m:
+            role_name = m.group(1)
+            try:
+                from awx.customvars.extract import extract_role, extract_role_tags, extract_role_handlers
+                role_dir = project_path / 'roles' / role_name
+                project_id_int = int(pk)
+                revision = 'editor'
+                extracted = extract_role(role_dir, project_id_int, revision)
+                RoleVariable.objects.filter(project_id=project_id_int, role_name=role_name).delete()
+                RoleVariable.objects.bulk_create([RoleVariable(**v) for v in extracted])
+                tags = extract_role_tags(role_dir)
+                RoleTag.objects.filter(project_id=project_id_int, role_name=role_name).delete()
+                RoleTag.objects.bulk_create([
+                    RoleTag(
+                        project_id=project_id_int, role_name=role_name,
+                        tag_name=t, task_count=c, scanned_revision=revision,
+                    )
+                    for t, c in tags.items()
+                ])
+                handlers = extract_role_handlers(role_dir)
+                RoleHandler.objects.filter(project_id=project_id_int, role_name=role_name).delete()
+                RoleHandler.objects.bulk_create([
+                    RoleHandler(
+                        project_id=project_id_int, role_name=role_name,
+                        scanned_revision=revision, **h,
+                    )
+                    for h in handlers
+                ])
+                rescan_info = {'role': role_name, 'vars': len(extracted)}
+            except Exception as exc:
+                rescan_info = {'role': role_name, 'error': str(exc)}
+
+        resp = {'path': rel, 'saved': True}
+        if rescan_info:
+            resp['rescanned_role'] = rescan_info
+        return Response(resp)
+
+    def delete(self, request, pk, **kwargs):
+        if not request.user.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only superusers may delete project files.')
+
+        project_path = _get_project_path(pk)
+        rel = request.query_params.get('path', '')
+        if not rel:
+            return Response({'detail': 'path parameter required.'}, status=400)
+
+        target = _safe_resolve(project_path, rel)
+        is_dir = target.is_dir()
+        if not is_dir and not target.is_file():
+            return Response({'detail': 'Not found.'}, status=404)
+
+        # For role directories: remove DB records before touching disk
+        if is_dir:
+            parts = target.relative_to(project_path).parts
+            if len(parts) == 2 and parts[0] == 'roles':
+                project_id_int = int(pk)
+                role_name = target.name
+                RoleVariable.objects.filter(project_id=project_id_int, role_name=role_name).delete()
+                RoleTag.objects.filter(project_id=project_id_int, role_name=role_name).delete()
+                RoleHandler.objects.filter(project_id=project_id_int, role_name=role_name).delete()
+
+        # git rm removes from index and disk atomically; fall back to manual removal
+        repo = project_path.resolve()
+        git_rm = subprocess.run(
+            ['git', 'rm', '-rf', str(target)],
+            cwd=str(repo), capture_output=True, timeout=15,
+        )
+        if git_rm.returncode != 0:
+            # Not tracked or not a git repo — delete from filesystem manually
+            if is_dir:
+                shutil.rmtree(target, ignore_errors=True)
+            elif target.exists():
+                target.unlink()
+
+        try:
+            subprocess.run(
+                ['git', 'commit', '-m', f'awx-ng editor: delete {rel}',
+                 '--author', f'{request.user.username} <awx-ng@localhost>'],
+                cwd=str(repo), capture_output=True, timeout=10,
+            )
+        except Exception:
+            pass
+
+        return Response(status=204)
 
 
 class ProjectFileLintView(APIView):
@@ -1397,9 +1549,214 @@ class ProjectFileLintView(APIView):
         return Response({'valid': True, 'errors': errors})
 
 
+class ProjectFileRenameView(APIView):
+    """
+    POST /api/v2/projects/{pk}/files/rename/
+    Body: {"from_path": "roles/img_docker", "to_path": "roles/img_docker2"}
+    Renames or moves a file or directory within the project.
+    Updates DB role records when a role directory is renamed.
+    """
+    def post(self, request, pk, **kwargs):
+        if not request.user.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only superusers may rename project files.')
+
+        project_path = _get_project_path(pk)
+        from_rel = (request.data.get('from_path') or '').strip()
+        to_rel = (request.data.get('to_path') or '').strip()
+        if not from_rel or not to_rel:
+            return Response({'detail': 'from_path and to_path are required.'}, status=400)
+
+        from_abs = _safe_resolve(project_path, from_rel)
+        to_abs = _safe_resolve(project_path, to_rel)
+
+        if not from_abs.exists():
+            return Response({'detail': 'Source not found.'}, status=404)
+        if to_abs.exists():
+            return Response({'detail': 'Target already exists.'}, status=409)
+
+        repo = project_path.resolve()
+
+        # git mv; fall back to shutil.move if not tracked
+        git_mv = subprocess.run(
+            ['git', 'mv', str(from_abs), str(to_abs)],
+            cwd=str(repo), capture_output=True, timeout=15,
+        )
+        if git_mv.returncode != 0:
+            to_abs.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(from_abs), str(to_abs))
+
+        try:
+            subprocess.run(
+                ['git', 'commit', '-m', f'awx-ng editor: rename {from_rel} → {to_rel}',
+                 '--author', f'{request.user.username} <awx-ng@localhost>'],
+                cwd=str(repo), capture_output=True, timeout=10,
+            )
+        except Exception:
+            pass
+
+        # When a role directory is renamed: update all DB records
+        project_id_int = int(pk)
+        try:
+            from_parts = from_abs.relative_to(project_path).parts
+            to_parts = to_abs.relative_to(project_path).parts
+        except ValueError:
+            from_parts = to_parts = ()
+        if (len(from_parts) == 2 and from_parts[0] == 'roles' and
+                len(to_parts) == 2 and to_parts[0] == 'roles'):
+            old_role, new_role = from_parts[1], to_parts[1]
+            RoleVariable.objects.filter(project_id=project_id_int, role_name=old_role).update(role_name=new_role)
+            RoleTag.objects.filter(project_id=project_id_int, role_name=old_role).update(role_name=new_role)
+            RoleHandler.objects.filter(project_id=project_id_int, role_name=old_role).update(role_name=new_role)
+
+        return Response({'renamed': True, 'from_path': from_rel, 'to_path': to_rel})
+
+
+# Archive suffixes handled by ProjectFilesUploadView
+_ARCHIVE_ZIP_SUFFIX = '.zip'
+_ARCHIVE_TAR_SUFFIXES = {'.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz'}
+_UPLOAD_ALLOWED_SUFFIXES = _ALLOWED_SUFFIXES | {'.zip', '.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz', '.gz'}
+
+
+def _is_safe_tar_member(member_name: str) -> bool:
+    """Reject absolute paths and directory traversal in tar member names."""
+    if member_name.startswith('/'):
+        return False
+    parts = member_name.replace('\\', '/').split('/')
+    return '..' not in parts
+
+
+class ProjectFilesUploadView(APIView):
+    """
+    POST /api/v2/projects/{pk}/files/upload/
+
+    Upload a single file or an archive (ZIP / tar.gz / tgz / tar.bz2 / …) into
+    the project directory. After writing, roles/ changes trigger a DB re-scan.
+
+    Multipart form fields:
+      file  — the uploaded file (required)
+      path  — target directory inside the project, e.g. "roles/" or "playbooks/"
+              (optional, defaults to "" = project root)
+    """
+    parser_classes = [
+        __import__('rest_framework.parsers', fromlist=['MultiPartParser']).MultiPartParser,
+        __import__('rest_framework.parsers', fromlist=['FormParser']).FormParser,
+    ]
+
+    def post(self, request, pk, **kwargs):
+        import zipfile
+        import tarfile as tarfilemod
+        import io
+
+        if not request.user.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only superusers may upload project files.')
+
+        project_path = _get_project_path(pk)
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'detail': 'file field required.'}, status=400)
+
+        target_dir_rel = (request.data.get('path') or '').strip().strip('/')
+        if target_dir_rel:
+            target_dir = _safe_resolve(project_path, target_dir_rel)
+        else:
+            target_dir = project_path
+
+        filename = upload.name
+        # Determine archive type by suffix (handle compound suffixes like .tar.gz)
+        fname_lower = filename.lower()
+        is_zip = fname_lower.endswith('.zip')
+        is_tar = any(fname_lower.endswith(s) for s in _ARCHIVE_TAR_SUFFIXES)
+
+        created = []
+
+        if is_zip:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            data = upload.read()
+            try:
+                with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                    for info in zf.infolist():
+                        if info.is_dir():
+                            continue
+                        member_name = info.filename
+                        if not _is_safe_tar_member(member_name):
+                            continue
+                        dest = _safe_resolve(target_dir, member_name)
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_bytes(zf.read(info.filename))
+                        created.append(str(dest.relative_to(project_path)))
+            except zipfile.BadZipFile as exc:
+                return Response({'detail': f'Invalid ZIP archive: {exc}'}, status=400)
+
+        elif is_tar:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            data = upload.read()
+            try:
+                with tarfilemod.open(fileobj=io.BytesIO(data)) as tf:
+                    for member in tf.getmembers():
+                        if not member.isfile():
+                            continue
+                        if not _is_safe_tar_member(member.name):
+                            continue
+                        dest = _safe_resolve(target_dir, member.name)
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        fobj = tf.extractfile(member)
+                        if fobj:
+                            dest.write_bytes(fobj.read())
+                            created.append(str(dest.relative_to(project_path)))
+            except tarfilemod.TarError as exc:
+                return Response({'detail': f'Invalid tar archive: {exc}'}, status=400)
+
+        else:
+            # Single file upload
+            suffix = pathlib.Path(filename).suffix.lower()
+            if suffix not in _UPLOAD_ALLOWED_SUFFIXES:
+                return Response({'detail': f'File type "{suffix}" not allowed.'}, status=403)
+            dest = _safe_resolve(target_dir, filename)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(upload.read())
+            created.append(str(dest.relative_to(project_path)))
+
+        # Trigger role DB re-scan for any role that was touched
+        roles_touched = set()
+        for rel_path in created:
+            parts = pathlib.Path(rel_path).parts
+            if len(parts) >= 2 and parts[0] == 'roles':
+                roles_touched.add(parts[1])
+
+        if roles_touched:
+            try:
+                from awx.customvars.extract import scan_project_roles
+                project_id_int = int(pk)
+                scan_project_roles(project_id_int, str(project_path), 'upload')
+            except Exception:
+                pass  # best-effort — files are written regardless
+
+        return Response({'created': created, 'count': len(created)}, status=201)
+
+
+def _pb_value_type(v):
+    """Return a simple type string for a playbook variable value."""
+    if v is None:
+        return 'null'
+    if isinstance(v, bool):
+        return 'bool'
+    if isinstance(v, int):
+        return 'int'
+    if isinstance(v, float):
+        return 'float'
+    if isinstance(v, dict):
+        return 'dict'
+    if isinstance(v, list):
+        return 'list'
+    return 'str'
+
+
 def _extract_plays(content):
-    """Parse a playbook's YAML and return per-play metadata (hosts/roles/tags)."""
+    """Parse a playbook's YAML and return per-play metadata (hosts/roles/tags/vars)."""
     import yaml as _yaml
+    import re as _re
     plays = []
     try:
         doc = _yaml.safe_load(content)
@@ -1417,6 +1774,9 @@ def _extract_plays(content):
                 'hosts': None,
                 'roles': [],
                 'tags': [],
+                'vars': [],
+                'vars_prompt': [],
+                'vars_count': 0,
             })
             continue
         roles = []
@@ -1429,49 +1789,162 @@ def _extract_plays(content):
         if isinstance(tags, str):
             tags = [tags]
         hosts = entry.get('hosts')
+
+        # Extract vars: block
+        play_vars = []
+        raw_vars = entry.get('vars')
+        if isinstance(raw_vars, dict):
+            for k, v in raw_vars.items():
+                raw_block = _yaml.dump({k: v}, default_flow_style=False, allow_unicode=True).strip()
+                has_jinja = bool(_re.search(r'\{\{.*?\}\}', str(v)))
+                play_vars.append({
+                    'name': k,
+                    'value': v if not isinstance(v, (dict, list)) else v,
+                    'value_type': _pb_value_type(v),
+                    'raw_yaml': raw_block,
+                    'has_jinja': has_jinja,
+                })
+
+        # Extract vars_prompt: block
+        play_vars_prompt = []
+        for vp in (entry.get('vars_prompt') or []):
+            if isinstance(vp, dict) and vp.get('name'):
+                play_vars_prompt.append({
+                    'name': vp['name'],
+                    'prompt': vp.get('prompt', ''),
+                    'private': bool(vp.get('private', False)),
+                    'default': vp.get('default'),
+                })
+
         plays.append({
             'name': entry.get('name', ''),
             'kind': 'play',
             'hosts': hosts if isinstance(hosts, str) else (str(hosts) if hosts is not None else None),
             'roles': [r for r in roles if r],
             'tags': tags or [],
+            'vars': play_vars,
+            'vars_prompt': play_vars_prompt,
+            'vars_count': len(play_vars) + len(play_vars_prompt),
         })
     return plays
 
 
+def _list_project_playbooks(pk, project_path):
+    """List a project's playbooks — only from ./playbooks/ (Ansible convention).
+
+    Primary source: AWX's own sync-time detection (proj.playbooks), filtered to
+    entries that live under playbooks/. Fallback: live-scan ./playbooks/ from disk.
+    Root-level .yml files are intentionally excluded to enforce the convention.
+    """
+    rels = []
+    try:
+        from awx.main.models import Project
+        proj = Project.objects.get(pk=pk)
+        # enforce convention: only files inside playbooks/
+        rels = [p for p in (proj.playbooks or []) if p.startswith('playbooks/')]
+    except Exception:
+        rels = []
+    if not rels:
+        pb_dir = project_path / 'playbooks'
+        if pb_dir.is_dir():
+            cand = [p for p in pb_dir.rglob('*.yml') if p.is_file()]
+            cand += [p for p in pb_dir.rglob('*.yaml') if p.is_file()]
+            rels = [str(p.relative_to(project_path)) for p in cand]
+    return sorted(set(rels))
+
+
 class ProjectPlaysView(APIView):
     """
-    GET /api/v2/projects/{pk}/plays/[?playbook=site.yml]
-    Liefert Play-Metadaten (hosts, roles, tags) je Playbook. Ohne ?playbook werden
-    alle Top-Level-*.yml/*.yaml des Projekts geparst. On-demand, kein DB-Cache.
+    GET /api/v2/projects/{pk}/plays/                — list of playbooks (fast, no parsing)
+    GET /api/v2/projects/{pk}/plays/?playbook=<rel> — play metadata (hosts/roles/tags) of ONE playbook
+
+    The list comes from AWX's playbook detection (recursive, incl. subfolders like
+    playbooks/ and bootstrap/). Plays are parsed only when a row is expanded
+    (with ?playbook=) — important for projects with hundreds of playbooks.
     """
     def get(self, request, pk, **kwargs):
         project_path = _get_project_path(pk)
         wanted = request.query_params.get('playbook')
 
+        # Single playbook: parse plays (lazy, on expand)
         if wanted:
-            candidates = [_safe_resolve(project_path, wanted)]
-        else:
-            candidates = sorted(
-                p for p in project_path.iterdir()
-                if p.is_file() and p.suffix in ('.yml', '.yaml') and not p.name.startswith('.')
-            )
+            path = _safe_resolve(project_path, wanted)
+            plays = []
+            if path.is_file() and path.suffix in ('.yml', '.yaml'):
+                try:
+                    if path.stat().st_size <= _MAX_FILE_BYTES:
+                        plays = _extract_plays(path.read_text(encoding='utf-8'))
+                except (OSError, UnicodeDecodeError):
+                    plays = []
+            return Response({'playbook': wanted, 'plays': plays})
 
-        results = []
-        for path in candidates:
-            if not path.is_file() or path.suffix not in ('.yml', '.yaml'):
-                continue
-            try:
-                if path.stat().st_size > _MAX_FILE_BYTES:
-                    continue
-                content = path.read_text(encoding='utf-8')
-            except (OSError, UnicodeDecodeError):
-                continue
-            plays = _extract_plays(content)
-            if not plays:
-                continue  # not a playbook (e.g. vars file)
-            results.append({
-                'playbook': str(path.relative_to(project_path)),
-                'plays': plays,
-            })
-        return Response({'count': len(results), 'results': results})
+        # List: paths only, no parsing
+        rels = _list_project_playbooks(pk, project_path)
+        return Response({
+            'count': len(rels),
+            'results': [{'playbook': r} for r in rels],
+        })
+
+
+class ProjectVariableUsagesView(APIView):
+    """
+    GET /api/v2/projects/{pk}/variable_usages/?role=<role>&var=<var_name>
+
+    Returns every block across the role that defines or references the variable:
+    the definition block in defaults/vars plus each task/template block that uses
+    it. Blocks are split with the YAML library (PyYAML node line marks) and a
+    grep-with-context fallback for non-YAML files.
+    """
+    def get(self, request, pk, **kwargs):
+        project_path = _get_project_path(pk)
+        role = request.query_params.get('role', '')
+        var = request.query_params.get('var', '')
+        if not role or not var:
+            return Response({'detail': 'role and var query params required.'}, status=400)
+        if not re.match(r'^[\w.-]+$', role) or not re.match(r'^[\w.-]+$', var):
+            return Response({'detail': 'invalid role or var name.'}, status=400)
+
+        role_dir = _safe_resolve(project_path, f'roles/{role}')
+        if not role_dir.is_dir():
+            return Response({'detail': 'role not found on disk.'}, status=404)
+
+        from awx.customvars.extract import find_variable_blocks
+        blocks = find_variable_blocks(role_dir, var)
+        return Response({
+            'role': role,
+            'var': var,
+            'count': len(blocks),
+            'results': blocks,
+        })
+
+
+class ProjectLaunchView(APIView):
+    """
+    POST /api/v2/projects/{pk}/launch/
+    Body: {"job_template_id": N, "limit": "optional-pattern"}
+
+    Launches an existing Job Template that belongs to this project with an
+    arbitrary limit override.  Uses create_unified_job() directly so the limit
+    is always honoured regardless of ask_limit_on_launch on the template.
+    """
+    def post(self, request, pk, **kwargs):
+        jt_id = request.data.get('job_template_id')
+        limit = request.data.get('limit', '')
+        ig = _resolve_location_instance_group(request.data.get('location_id'))
+        if not jt_id:
+            return Response({'error': 'job_template_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        jt = get_object_or_404(JobTemplate, pk=jt_id, project_id=pk)
+
+        try:
+            job = jt.create_unified_job(limit=limit, _eager_fields={'created_by': request.user})
+            if ig:
+                job.instance_group = ig
+                job.save(update_fields=['instance_group'])
+            job.signal_start()
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {'job_id': job.id, 'job_url': f'/api/v2/jobs/{job.id}/'},
+            status=status.HTTP_201_CREATED,
+        )

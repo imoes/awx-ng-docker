@@ -14,7 +14,11 @@ from awx.customvars.api import (
     ProjectFilesListView,
     ProjectFileContentView,
     ProjectFileLintView,
+    ProjectFileRenameView,
+    ProjectFilesUploadView,
     ProjectPlaysView,
+    ProjectVariableUsagesView,
+    ProjectLaunchView,
 )
 
 from awx.api.views import (
@@ -76,8 +80,14 @@ urls = [
     re_path(r'^(?P<pk>[0-9]+)/files/$', ProjectFilesListView.as_view(), name='project_files_list'),
     re_path(r'^(?P<pk>[0-9]+)/files/content/$', ProjectFileContentView.as_view(), name='project_file_content'),
     re_path(r'^(?P<pk>[0-9]+)/files/lint/$', ProjectFileLintView.as_view(), name='project_file_lint'),
+    re_path(r'^(?P<pk>[0-9]+)/files/rename/$', ProjectFileRenameView.as_view(), name='project_file_rename'),
+    re_path(r'^(?P<pk>[0-9]+)/files/upload/$', ProjectFilesUploadView.as_view(), name='project_files_upload'),
     # awx-ng: Play-Metadaten je Playbook (hosts/roles/tags) für die Playbook-Verwaltung
     re_path(r'^(?P<pk>[0-9]+)/plays/$', ProjectPlaysView.as_view(), name='project_plays'),
+    # awx-ng: where a role variable is defined/used across the role (grepped blocks)
+    re_path(r'^(?P<pk>[0-9]+)/variable_usages/$', ProjectVariableUsagesView.as_view(), name='project_variable_usages'),
+    # awx-ng: launch a job template that belongs to this project with optional limit
+    re_path(r'^(?P<pk>[0-9]+)/launch/$', ProjectLaunchView.as_view(), name='project_launch'),
 ]
 
 __all__ = ['urls']

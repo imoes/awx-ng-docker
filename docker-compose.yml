@@ -101,7 +101,7 @@ services:
       - ./config/nginx_awx.conf:/etc/nginx/nginx.conf:ro
       - ./data/projects:/var/lib/awx/projects
       - ./data/receptor:/var/run/receptor
-      - ${ANSIBLE_REPO_PATH:-/home/mutkluge/Dev/ansible/ansible03}:/var/lib/awx/ansible03:rw
+      - ${ANSIBLE_REPO_PATH:-/home/mutkluge/Dev/ansible/ansible03}:/var/lib/awx/projects/ansible03:rw
     environment:
       DATABASE_USER: awx
       DATABASE_NAME: awx
@@ -153,7 +153,7 @@ services:
       - ./receptor/receptor-control.conf:/etc/receptor/receptor.conf:ro
       - ./data/projects:/var/lib/awx/projects
       - ./data/receptor:/var/run/receptor
-      - ${ANSIBLE_REPO_PATH:-/home/mutkluge/Dev/ansible/ansible03}:/var/lib/awx/ansible03:rw
+      - ${ANSIBLE_REPO_PATH:-/home/mutkluge/Dev/ansible/ansible03}:/var/lib/awx/projects/ansible03:rw
     environment:
       DATABASE_USER: awx
       DATABASE_NAME: awx
@@ -192,7 +192,7 @@ services:
       - ./receptor/receptor-control.conf:/etc/receptor/receptor.conf:ro
       - ./data/projects:/var/lib/awx/projects
       - ./data/receptor:/var/run/receptor
-      - ${ANSIBLE_REPO_PATH:-/home/mutkluge/Dev/ansible/ansible03}:/var/lib/awx/ansible03:rw
+      - ${ANSIBLE_REPO_PATH:-/home/mutkluge/Dev/ansible/ansible03}:/var/lib/awx/projects/ansible03:rw
     environment:
       AWX_NG_CONTROL: "true"
     healthcheck:

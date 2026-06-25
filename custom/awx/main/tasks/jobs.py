@@ -950,19 +950,23 @@ class RunJob(SourceControlMixin, BaseTask):
             paths = [os.path.join(CONTAINER_ROOT, folder)] + paths
             env[env_key] = os.pathsep.join(paths)
 
-        # Inject per-runner environment variables from ExecutionNodeLocation.
-        # These override global AWX_TASK_ENV so runner-specific proxy settings work.
+        # Inject environment variables for the runner executing this job.
+        # Effective value = per-runner override (ExecutionNodeLocation) if set,
+        # else the Site (Location) default. Overrides global AWX_TASK_ENV so
+        # runner/site-specific proxy settings work.
         try:
             from awx.customvars.models import ExecutionNodeLocation
-            from awx.customvars.api import _parse_env_text
+            from awx.customvars.api import _parse_env_text, _effective_setting
             node = job.execution_node or job.controller_node or ''
             enl = ExecutionNodeLocation.objects.filter(instance_hostname=node).first()
             if enl is None:
-                candidates = ExecutionNodeLocation.objects.exclude(environment='')
+                candidates = ExecutionNodeLocation.objects.all()
                 if candidates.count() == 1:
                     enl = candidates.first()
-            if enl and enl.environment:
-                env.update(_parse_env_text(enl.environment))
+            if enl:
+                env_text = _effective_setting(enl, 'environment')
+                if env_text:
+                    env.update(_parse_env_text(env_text))
         except Exception:
             pass
 

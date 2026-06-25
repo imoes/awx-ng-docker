@@ -1,71 +1,84 @@
-# Remote Ansible-Runner Proxies (Execution Nodes)
+# Remote Ansible Runners (Execution Nodes)
 
-awx-ng nutzt das **Receptor-Protokoll** für verteilte Job-Ausführung. Remote-Proxies
-verbinden sich **ausgehend** (NAT-freundlich, kein eingehender Port nötig) zum zentralen
-awx-ng Control-Node auf Port 2222 und führen Playbooks lokal aus.
+awx-ng uses the **Receptor protocol** for distributed job execution. Remote runners
+dial **outbound** (NAT-friendly, no inbound port required) to the central awx-ng
+control node on port 2222 and execute playbooks locally.
 
-## Architektur
+## Architecture
 
 ```
-awx-ng (8052)
-  └─ awx_ee [local] (port 2222)   ← Receptor Control Node
-       ├─ ansible03.example.com   ← Remote Proxy (Site: MUE-0)
-       ├─ ansible01.dierichs.de   ← Remote Proxy (Site: Dierichs)
-       └─ ... weitere Proxies
+awx-ng (port 8052)
+  └─ awx_ee [local] (port 2222)   ← Receptor control node
+       ├─ ansible03.example.com   ← Remote runner (site: MUE-0)
+       ├─ ansible01.example.com   ← Remote runner (site: Berlin)
+       └─ ... more runners
 ```
 
-Jeder Proxy wird in awx-ng einer **Site/Location** zugeordnet. Job-Templates können
-dann über die Location gesteuert werden, welcher Proxy den Job ausführt.
+Each runner is assigned to a **site** in awx-ng. Job templates can then be directed
+to a specific site to control which runner executes the job.
 
-**Wichtig:** AWX registriert Receptor-Nodes **nicht** automatisch. Ein Proxy, der sich
-über Receptor verbindet, erscheint als `"Unrecognized node advertising on mesh"` in den
-Logs und wird ignoriert, bis ein Instance-Datensatz in AWX angelegt wurde (Schritt 2
-in den Anleitungen unten).
+**Important:** AWX does **not** register Receptor nodes automatically. A runner that
+connects via Receptor appears as `"Unrecognized node advertising on mesh"` in the logs
+and is ignored until it is registered in AWX (step 5 below).
 
-## Docker (empfohlen)
+## Docker (recommended)
 
-Voraussetzungen: Docker + Docker Compose auf dem Remote-Host.
+Prerequisites: Docker + Docker Compose on the remote host.
 
 ```bash
-# 1. Dateien auf den Remote-Host kopieren
-scp deploy/docker-compose.proxy.yml \
-    deploy/scripts/setup-proxy.sh \
-    deploy/receptor/receptor-proxy.conf.template \
+# 1. Copy files to the remote host (from the awx-ng-docker directory)
+scp Dockerfile.proxy \
+    docker-compose.proxy.yml \
+    scripts/setup-proxy.sh \
+    receptor/receptor-proxy.conf.template \
     user@ansible03:~/awx-runner/
 
-# 2. Auf dem Remote-Host: receptor.conf generieren + Verzeichnisse anlegen
+# 2. On the remote host: generate receptor.conf and create directories
 cd ~/awx-runner
 ./setup-proxy.sh ansible03 awx-ng.example.com 2222
+#                ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^
+#                node ID    control host         port
 
-# 3. Container starten (Receptor verbindet sich ausgehend zu Port 2222)
+# 3. Build the image (installs Ansible + collections)
+docker compose -f docker-compose.proxy.yml build
+
+# 4. Start the container (Receptor dials out to port 2222)
 docker compose -f docker-compose.proxy.yml up -d
 
-# 4. In AWX UI registrieren: Administration → Runners → "Register runner"
-#    hostname=ansible03, node_type=execution
-#    → AWX legt den Instance-Datensatz an
+# 5. Register in the AWX UI: Administration → Runners → "Register runner"
+#    Hostname: ansible03 (must match the node ID from setup-proxy.sh)
+#    Node type: execution
+#    → AWX creates the instance record
 
-# 5. Health check klicken (oder ~20s warten)
-#    → AWX erkennt den Receptor-Node im Mesh → node_state=ready, Capacity > 0
+# 6. Click "health check" (or wait ~20s)
+#    → AWX detects the Receptor node in the mesh → node_state=ready, capacity > 0
 ```
 
-Für Hosts hinter einem Corporate-HTTP-Proxy: `docker-compose.override.yml` anlegen
-(gitignored) mit `HTTP_PROXY` / `HTTPS_PROXY` Environment-Variablen.
+For hosts behind a corporate HTTP proxy: create a `docker-compose.override.yml`
+(gitignored) with `HTTP_PROXY` / `HTTPS_PROXY` build args.
 
-Ansible-Collections (z.B. `netbox.netbox`) werden beim ersten Job-Run automatisch
-aus der `requirements.yml` des Projects in `data/projects/` installiert.
+## Assign runner to a site
 
-## Manuelle Installation (ohne Docker)
+After registration, assign the runner to a site:
 
-Voraussetzungen auf dem Remote-Host:
+1. **Administration → Runners** → row of the new runner → **assign site**
+2. Select a site (e.g. `MUE-0`)
+3. Optionally enter SSH credential, environment variables, ansible.cfg as **overrides**
+   (leave empty to use the site default)
+4. Save
+
+The site automatically creates an AWX instance group and the runner is assigned to it.
+
+## Manual installation (without Docker)
+
+Prerequisites on the remote host:
 - Linux (Debian/Ubuntu/RHEL)
-- `ansible-runner` installiert: `pip3 install ansible-runner`
-- `receptor` Binary installiert (siehe unten)
-- Ausgehende TCP-Verbindung zu awx-ng-Control-Host:2222
+- Python 3.8+
+- Outbound TCP connection to awx-ng-control-host:2222
 
-### Via Ansible-Playbook
+### Via Ansible playbook
 
 ```bash
-# Aus einem Ansible-Host ausführen:
 ansible-playbook deploy/ansible/install-receptor-proxy.yml \
   -i "ansible03.example.com," \
   -e "proxy_node_id=ansible03" \
@@ -74,22 +87,19 @@ ansible-playbook deploy/ansible/install-receptor-proxy.yml \
   --become
 ```
 
-### Manuell
+### Manual steps
 
 ```bash
-# 1. receptor installieren
-pip3 install receptorctl
-# oder Binary herunterladen:
+# 1. Install Receptor
 curl -Lo /usr/local/bin/receptor \
   https://github.com/ansible/receptor/releases/latest/download/receptor_linux_amd64
 chmod +x /usr/local/bin/receptor
 
-# 2. ansible-runner installieren
-pip3 install ansible-runner
+# 2. Install ansible-runner and Ansible
+pip3 install ansible-runner "ansible==8.7.0" netaddr proxmoxer
 
-# 3. Receptor-Konfiguration anlegen
+# 3. Create Receptor configuration
 mkdir -p /etc/receptor /var/run/receptor
-# Template aus deploy/receptor/receptor-proxy.conf.template anpassen:
 cat > /etc/receptor/receptor.conf << EOF
 ---
 - node:
@@ -113,10 +123,10 @@ cat > /etc/receptor/receptor.conf << EOF
     verifysignature: false
 EOF
 
-# 4. Systemd-Service anlegen
+# 4. Create systemd service
 cat > /etc/systemd/system/receptor.service << 'EOF'
 [Unit]
-Description=Receptor - AWX-NG Execution Node Proxy
+Description=Receptor — AWX-NG Execution Node
 After=network.target
 
 [Service]
@@ -133,14 +143,13 @@ systemctl daemon-reload
 systemctl enable --now receptor
 ```
 
-Danach: In AWX UI registrieren (Administration → Runners → „Register runner",
-hostname=ansible03).
+Then register in the AWX UI: **Administration → Runners → Register runner**,
+hostname = node ID from receptor.conf (`ansible03`).
 
-## Bekannte Proxy-Hosts
+## Known runners
 
-| Hostname                  | Node-ID                    | Site       |
-|---------------------------|----------------------------|------------|
-| ansible03.example.com     | ansible03                  | MUE-0      |
-| ansible01.dierichs.de     | ansible01-dierichs-de      | Dierichs   |
+| Hostname | Node ID | Site |
+|----------|---------|------|
+| ansible03.example.com | ansible03 | MUE-0 |
 
-(Diese Tabelle nach Registrierung in awx-ng pflegen.)
+(Keep this table up to date after registering runners in awx-ng.)

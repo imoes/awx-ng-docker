@@ -1,46 +1,46 @@
-# awx-ng — Workflow-Dokumentation
+# awx-ng — Workflow Documentation
 
-Vollständiger Ablauf von der Ersteinrichtung bis zum Ausführen eines Playbooks.
+Complete walkthrough from initial setup to running a playbook.
 
 ---
 
-## Teil 1 — Ersteinrichtung (einmalig)
+## Part 1 — Initial setup (one time)
 
-### 1.1 Voraussetzungen
+### 1.1 Prerequisites
 
 - Docker ≥ 24, Docker Compose v2
-- Min. 4 GB RAM, 20 GB freier Speicher
-- Ein lokales Ansible-Repository auf dem Host (z.B. `/home/user/ansible/ansible03`)
-- Ausgehende TCP-Verbindung auf Port 2222 (für Remote Runner, optional)
+- At least 4 GB RAM, 20 GB free disk space
+- A local Ansible repository on the host (e.g. `/home/user/ansible/ansible03`)
+- Outbound TCP connection on port 2222 (for remote runners, optional)
 
-### 1.2 Konfiguration anlegen
+### 1.2 Create configuration
 
 ```bash
-cd deploy/
+cd awx-ng-docker/
 
-# Secrets generieren (einmalig)
+# Generate secrets (one time)
 mkdir -p secrets
 python3 -c "import secrets; print(secrets.token_hex(32))" > secrets/secret_key
 python3 -c "import secrets; print(secrets.token_hex(16))" > secrets/pg_password
 chmod 600 secrets/*
 
-# Konfiguration aus Vorlage ableiten
+# Create configuration from template
 cp .env.example .env
 ```
 
-`.env` befüllen:
+Fill in `.env`:
 ```bash
-AWX_ADMIN_PASSWORD=MeinSicheresPasswort   # Login für die Web-UI
+AWX_ADMIN_PASSWORD=MySecurePassword   # web UI login password
 
-# Pfad zum Ansible-Repository auf dem HOST (nicht im Container)
+# Path to the Ansible repository on the HOST (not inside the container)
 ANSIBLE_REPO_PATH=/home/user/ansible/ansible03
 
-# Optional: NetBox-Anbindung für Location-Reconcile
+# Optional: NetBox integration for location reconciliation
 NETBOX_URL=https://netbox.example.com
 NETBOX_TOKEN=<api-token>
 ```
 
-### 1.3 Verzeichnisse anlegen und starten
+### 1.3 Create directories and start
 
 ```bash
 mkdir -p data/postgres data/redis data/projects
@@ -49,289 +49,287 @@ mkdir -p data/receptor && chmod 777 data/receptor
 docker compose build
 docker compose up -d
 
-# Status prüfen — Web-UI startet nach ca. 60–90 Sekunden
+# Check status — web UI starts after approximately 60–90 seconds
 docker compose ps
 ```
 
-**Web-UI:** `http://localhost:8052`  
-**Login:** `admin` / Passwort aus `.env`
+**Web UI:** `http://localhost:8052`
+**Login:** `admin` / password from `.env`
 
 ---
 
-## Teil 2 — AWX Grundkonfiguration (einmalig)
+## Part 2 — AWX base configuration (one time)
 
-### 2.1 Organisation anlegen
+### 2.1 Create an organization
 
-AWX benötigt zwingend eine Organisation als Container für Inventories und Projekte.
+AWX requires an organization as a container for inventories and projects.
 
 1. **Resources → Organizations → Add**
-2. Name: z.B. `IT` oder der Firmenname
+2. Name: e.g. `IT` or your company name
 3. Save
 
-### 2.2 Inventory anlegen
+### 2.2 Create an inventory
 
-Das Inventory enthält die Hosts und Gruppen, gegen die Playbooks ausgeführt werden.
+The inventory contains the hosts and groups to run playbooks against.
 
 1. **Resources → Inventories → Add → Add inventory**
-2. Name: z.B. `ansible03-inventory`
-3. Organization: die in 2.1 erstellte
+2. Name: e.g. `ansible03-inventory`
+3. Organization: the one created in 2.1
 4. Save
 
-### 2.3 Projekt anlegen (Playbooks + Rollen)
+### 2.3 Create a project
 
-Das Projekt zeigt auf das Ansible-Repository — lokal als Bind-Mount im Container.
+The Ansible repository (`ANSIBLE_REPO_PATH`) is mounted as `/var/lib/awx/projects/ansible03`
+inside the container.
+
+**Option A — Via the Editor (recommended):**
+
+1. **Resources → Editor**
+2. Click the `+` button next to the project dropdown
+3. Enter a name (e.g. `ansible03`)
+4. Select `ansible03` from the directory dropdown
+5. Create
+
+**Option B — Via the Projects screen:**
 
 1. **Resources → Projects → Add**
-2. Name: z.B. `ansible03`
+2. Name: e.g. `ansible03`
 3. Source Control Type: **Manual**
-4. Project Base Path: `/var/lib/awx/projects`  
-   (bereits als Default gesetzt)
-5. Playbook Directory: `ansible03`  
-   (entspricht dem Verzeichnisnamen unter `/var/lib/awx/ansible03`)
-6. Save
-
-> **Hintergrund:** Das Ansible-Repository liegt auf dem Host unter `ANSIBLE_REPO_PATH`
-> und ist im Container als `/var/lib/awx/ansible03` eingehängt (Bind-Mount in
-> `docker-compose.yml`). AWX liest Playbooks direkt aus diesem Pfad — kein git-Clone nötig.
+4. Playbook Directory: `ansible03`
+   (directory name relative to `/var/lib/awx/projects/`)
+5. Save
 
 ---
 
-## Teil 3 — Hosts importieren
+## Part 3 — Import hosts
 
-### 3.1 Host manuell anlegen
+### 3.1 Add a host manually
 
 1. **Resources → Hosts → Add**
-2. Name: Hostname (z.B. `docker01.example.com`)
-3. Inventory: das in 2.2 erstellte
-4. Variables (YAML): initiale `host_vars` eintragen, z.B.:
+2. Name: hostname (e.g. `docker01.example.com`)
+3. Inventory: the one created in 2.2
+4. Variables (YAML):
    ```yaml
    ansible_host: 10.32.1.50
    ansible_user: root
    ```
 5. Save
 
-Alternativ: Hosts über NetBox-Inventory-Source importieren
-(Resources → Inventories → Sources → Add).
+Alternatively: import hosts via a NetBox inventory source
+(Resources → Inventories → Sources → Add, Source: `NetBox`).
 
-### 3.2 Host-Variablen pflegen
+### 3.2 Manage host variables
 
-Für jede Rolle, die auf den Host angewendet werden soll, gibt es einen eigenen Tab:
-
-1. **Resources → Hosts → [Host auswählen]**
+1. **Resources → Hosts → [select host]**
 2. Tab **Role Variables**
-3. Hier sind alle Rollen-Defaults aus dem Projekt aufgelistet
-4. Überschriebene Werte werden fett hervorgehoben
-5. Änderungen werden direkt in `host.variables` gespeichert (entspricht `host_vars`)
+3. All role defaults from the project are listed
+4. Overridden values are shown in bold
+5. Changes are saved directly to `host.variables` (equivalent to `host_vars`)
 
-Tab **Aggregated Variables** zeigt den finalen Variablen-Stack:
-- Rolle Default → Gruppen-Override → Host-Override (letzteres gewinnt)
+The **Aggregated Variables** tab shows the final variable stack:
+role default → group override → host override (last one wins)
 
-### 3.3 Rollen dem Host zuweisen
+### 3.3 Assign roles to a host
 
-Im Tab **Role Variables** → „Assign Roles" Button → Rollen aus dem Projekt auswählen.
-Die zugewiesenen Rollen werden als `host_roles`-Variable gespeichert.
+Tab **Role Variables** → "Assign Roles" → select roles from the project.
+Assigned roles are saved as `host_roles`.
 
 ---
 
-## Teil 4 — Playbooks und Rollen erkunden
+## Part 4 — Explore playbooks and roles
 
-### 4.1 Rollen-Übersicht
+### 4.1 Roles overview
 
 **Resources → Roles**
 
-Zeigt alle Rollen des Projekts mit:
-- Anzahl der Variablen (Defaults)
-- Ob die Rolle auf Disk vorhanden ist
-- Letzter Scan-Status
+Lists all roles in the project with variable counts, status (on disk / imported),
+and last scan status. Click a role to see all variables with types and defaults.
 
-Klick auf eine Rolle → vollständige Variable-Übersicht mit Types und Defaults.
+Expand variable usages: where is the variable defined and used in the codebase?
 
-### 4.2 Playbook-Übersicht
+### 4.2 Playbooks overview
 
 **Resources → Playbooks**
 
-Zeigt alle `.yml`-Dateien des Projekts mit den enthaltenen Plays (Roles, Hosts, Tags).
+All `.yml` files in the project with their plays (hosts, roles, tags).
 
-- **Grüner Badge + „Run"-Button**: es existiert bereits ein Job-Template für dieses Playbook
-- **„Create template"**: noch kein Template vorhanden — leitet zur Template-Erstellung weiter
+- **Green badge + "Run" button**: a job template exists → launch directly
+- **"Create template"**: no template yet → redirects to template creation
+
+### 4.3 Edit files in the Editor
+
+**Resources → Editor**
+
+- File tree on the left, Monaco editor on the right
+- Context menu (right-click): rename, duplicate, delete, new file/folder, upload
+- Automatic YAML linting with inline error display
+- **Git panel** (toolbar button, git repos only): commit and push the current state
 
 ---
 
-## Teil 5 — Job Template erstellen
+## Part 5 — Create a job template
 
-Ein Job Template verbindet Inventory + Projekt + Playbook und kann wiederholt ausgeführt werden.
-
-### 5.1 Template anlegen
+### 5.1 Add a template
 
 1. **Resources → Templates → Add → Add job template**
-2. Name: z.B. `Deploy Docker Host`
+2. Name: e.g. `Deploy Docker Host`
 3. Job Type: `Run`
-4. Inventory: das in 2.2 erstellte
-5. Project: das in 2.3 erstellte
-6. Playbook: aus Dropdown wählen (z.B. `site.yml` oder `docker.yml`)
-7. Credentials: Machine Credential mit SSH-Key auswählen (falls SSH-Schlüssel benötigt)
-8. **Limit**: Haken bei „Prompt on launch" setzen → bei jedem Start wird nach dem Limit gefragt
-9. Save
+4. Inventory: the one created in 2.2
+5. Project: the one created in 2.3
+6. Playbook: select from dropdown
+7. Credentials: select a machine credential with an SSH key (if required)
+8. **Limit**: check "Prompt on launch" → limit is requested at each launch
+9. **Site/Runner** (optional): select a site → job runs on that site's runner
+10. Save
 
-### 5.2 Optionale Einstellungen
+### 5.2 Optional settings
 
-- **Tags** / **Skip Tags**: nur bestimmte Plays ausführen
-- **Extra Variables**: statische Variable-Overrides für alle Jobs dieses Templates
-- **Verbosity**: Log-Detail-Level (0 = normal, 2 = debug)
+- **Tags** / **Skip Tags**: run only specific tasks
+- **Extra Variables**: static overrides for all jobs from this template
+- **Verbosity**: log detail level (0 = normal, 2 = debug)
 
 ---
 
-## Teil 6 — Playbook ausführen
+## Part 6 — Run a playbook
 
-Es gibt drei Wege, ein Playbook zu starten:
-
-### Weg A: Über den Playbooks-Screen (einfachster Weg)
+### Method A: Playbooks screen (simplest)
 
 1. **Resources → Playbooks**
-2. Playbook-Zeile mit grünem Badge → **Run**-Button klicken
-3. Im Dialog:
-   - **Template**: falls mehrere Templates für dieses Playbook existieren, auswählen
-   - **Limit**: Hostname oder Gruppe (z.B. `docker01.example.com` oder `webservers`)  
-     Leer lassen = alle Hosts im Inventory
-   - **Location** (optional): falls ein Remote-Runner einer Site zugewiesen ist,
-     hier auswählen → Job läuft auf dem Runner dieser Site
-4. **Run** klicken
+2. Playbook row with green badge → click **Run**
+3. In the dialog:
+   - **Template**: select if multiple exist
+   - **Limit**: hostname or group (empty = all hosts in inventory)
+   - **Location**: select a site → job runs on that site's runner
+4. Click **Run**
 
-### Weg B: Über den Host-Screen
+### Method B: Host screen
 
-1. **Resources → Hosts → [Host auswählen]**
-2. Tab **Role Variables** → **Run Host**-Button
-3. Limit ist bereits mit dem Hostnamen vorbelegt
-4. Playbook / Template auswählen, Location optional wählen
-5. **Run** klicken
+1. **Resources → Hosts → [select host]**
+2. Tab **Role Variables** → click **Run Host**
+3. Limit is pre-filled with the hostname
 
-### Weg C: Über Templates (AWX-Standard)
+### Method C: Templates (standard AWX)
 
-1. **Resources → Templates → [Template auswählen] → Launch**
-2. Limit eingeben falls „Prompt on launch" aktiviert
-3. **Launch**
+1. **Resources → Templates → [select template] → Launch**
 
-### 6.1 Was passiert beim Ausführen
+### 6.1 What happens when a job runs
 
 ```
 AWX (awx_task)
   │
-  ├── Generiert Private Data Directory:
-  │     project/    → Playbooks + Rollen aus dem Ansible-Repository
-  │     inventory/  → Generierte Inventory-Datei mit host_vars aus AWX-DB
-  │     env/        → Credentials, Limit, Extra-Vars
+  ├── Generates private data directory:
+  │     project/    → playbooks + roles from the Ansible repository
+  │     inventory/  → inventory file with host_vars from the AWX database
+  │     env/        → credentials, limit, extra vars, proxy env vars
   │
-  ├── Sendet das Verzeichnis als Tarball via Receptor an den Execution Node
+  ├── Sends the directory as a tarball via Receptor to the execution node
   │
-  └── Execution Node (awx_ee lokal oder Remote Runner):
+  └── Execution node (local awx_ee or remote runner):
         ansible-runner worker
           → ansible-playbook site.yml --limit docker01.example.com
 ```
 
-### 6.2 Job-Output beobachten
+### 6.2 Monitor job output
 
-**Views → Jobs** → laufender oder abgeschlossener Job → Live-Output mit Farbkodierung.
+**Views → Jobs** → running or completed job → live output with color coding.
 
 ---
 
-## Teil 7 — Remote Runner einrichten (optional)
+## Part 7 — Set up a remote runner (optional)
 
-Ein Remote Runner ist ein Execution Node auf einem anderen Host, der Jobs lokal ausführt
-(näher an den Ziel-Hosts). Er verbindet sich **ausgehend** (NAT-freundlich) zum
-awx-ng Control Node auf Port 2222.
+A remote runner executes jobs locally on another host (closer to the target hosts).
+It dials **outbound** to the awx-ng control node on port 2222.
 
-### 7.1 Benötigte Dateien auf den Remote-Host kopieren
+Full instructions: **[PROXIES.md](PROXIES.md)**
+
+### Quick reference
 
 ```bash
-# Aus dem deploy/-Verzeichnis:
+# 1. Copy files to remote host + build image
 scp Dockerfile.proxy docker-compose.proxy.yml scripts/setup-proxy.sh \
-    receptor/receptor-proxy.conf.template \
-    collections/netbox-netbox-3.20.0.tar.gz \
-    collections/community-general-10.7.0.tar.gz \
-    user@ansible03:~/awx-runner/
+    receptor/receptor-proxy.conf.template user@runner:~/awx-runner/
+ssh user@runner "cd ~/awx-runner && \
+  ./setup-proxy.sh runner-hostname awx-ng.example.com 2222 && \
+  docker compose -f docker-compose.proxy.yml build && \
+  docker compose -f docker-compose.proxy.yml up -d"
 
-# Tarballs ins erwartete Unterverzeichnis legen
-ssh user@ansible03 "mkdir -p ~/awx-runner/collections && \
-  mv ~/awx-runner/*.tar.gz ~/awx-runner/collections/"
+# 2. Register in AWX: Administration → Runners → Register runner
+#    Hostname = runner-hostname (must match node ID)
+
+# 3. Assign to site: Administration → Runners → assign site
 ```
-
-### 7.2 Auf dem Remote-Host: Image bauen + Runner starten
-
-```bash
-ssh user@ansible03
-cd ~/awx-runner
-
-# receptor.conf generieren (Node-ID muss mit dem AWX-Hostnamen übereinstimmen)
-./setup-proxy.sh ansible03 awx-ng.example.com 2222
-
-# Image einmalig bauen (installiert Ansible-Collections ins Image)
-docker compose -f docker-compose.proxy.yml build
-
-# Runner starten
-docker compose -f docker-compose.proxy.yml up -d
-
-# Prüfen ob Receptor-Socket vorhanden ist (= Verbindung steht)
-docker compose -f docker-compose.proxy.yml ps
-```
-
-### 7.3 Runner in AWX registrieren
-
-Ohne Registrierung in der AWX-Datenbank wird der verbundene Receptor-Node ignoriert.
-
-1. **Administration → Runners → Register runner**
-2. Hostname: `ansible03` (identisch mit dem Node-ID aus `setup-proxy.sh`)
-3. Node type: `execution`
-4. Register
-
-Nach ~20 Sekunden (AWX-Heartbeat) erscheint `node_state: ready` und eine Kapazität > 0.
-
-Optional: **health check** klicken zur sofortigen Überprüfung.
-
-### 7.4 Runner einer Site zuweisen
-
-1. In der Runners-Tabelle: **assign site** neben `ansible03`
-2. Site auswählen (z.B. `MUE-0`)
-3. Optional: SSH User, SSH Credential ID, SSH Private Key (id_rsa), ansible.cfg für diese Site eintragen
-4. Save
-
-Damit wird automatisch eine AWX InstanceGroup mit dem Namen der Site angelegt
-und der Runner dieser Gruppe zugewiesen.
-
-### 7.5 Playbook gezielt auf dem Remote Runner ausführen
-
-Beim Starten eines Playbooks (Weg A oder B aus Teil 6):
-- **Location**-Dropdown erscheint wenn Sites konfiguriert sind
-- Site auswählen → Job wird an den Runner dieser Site geroutet
 
 ---
 
-## Teil 8 — NetBox-Integration (optional)
+## Part 8 — NetBox integration (optional)
 
-### 8.1 Locations aus NetBox importieren
+### 8.1 Import sites from NetBox
 
-1. **Resources → Locations → Reconcile with NetBox**
-2. NetBox-URL und Token müssen in `.env` gesetzt sein
-3. Alle NetBox-Sites werden als Locations angelegt
+1. **Administration → Sites → Reconcile with NetBox**
+2. `NETBOX_URL` and `NETBOX_TOKEN` must be set in `.env`
+3. All NetBox sites are created as awx-ng sites
 
-### 8.2 Hosts aus NetBox importieren
+### 8.2 Import hosts from NetBox
 
-1. **Resources → Inventories → [Inventory] → Sources → Add**
+1. **Resources → Inventories → [inventory] → Sources → Add**
 2. Source: `NetBox`
-3. NetBox-URL und Credentials eintragen
-4. Sync starten
+3. Enter NetBox URL and credentials
+4. Start sync
 
 ---
 
-## Zusammenfassung: Minimaler Workflow
+## Part 9 — MCP server (AI integration, optional)
+
+The MCP server allows AI assistants (e.g. Claude) to control awx-ng directly.
+
+### 9.1 Create a token
+
+1. **Resources → API Tokens → Create Token**
+2. Scope: `write`
+3. Copy the token immediately — it is only shown once
+
+### 9.2 Configure MCP in Claude Code
+
+```json
+{
+  "mcpServers": {
+    "awx-ng": {
+      "command": "curl",
+      "args": ["-s", "-X", "POST", "http://localhost:8052/mcp"],
+      "env": {
+        "AWX_TOKEN": "<your-token>"
+      }
+    }
+  }
+}
+```
+
+### 9.3 Available MCP tools
+
+| Tool | Description |
+|------|-------------|
+| `awx_list_projects` | List projects |
+| `awx_list_inventories` | List inventories |
+| `awx_run_playbook` | Launch a playbook |
+| `awx_list_project_files` | List files in a project |
+| `awx_read_project_file` | Read file content |
+| `awx_write_project_file` | Write file content |
+| `awx_sync_project` | Trigger git sync |
+| `awx_get_project_roles` | List roles |
+| `awx_get_role_variables` | Read role variables |
+
+---
+
+## Summary: minimal workflow
 
 ```
-1. deploy/.env befüllen (ANSIBLE_REPO_PATH + AWX_ADMIN_PASSWORD)
+1. Fill in .env (ANSIBLE_REPO_PATH + AWX_ADMIN_PASSWORD)
 2. docker compose build && docker compose up -d
-3. UI: Organisation anlegen
-4. UI: Inventory anlegen
-5. UI: Projekt anlegen (SCM: Manual, Dir: ansible03)
-6. UI: Host anlegen + host_vars setzen
-7. UI: Playbooks → "Create template" für das gewünschte Playbook
-8. UI: Playbooks → "Run" → Limit eingeben → Run
-9. UI: Views → Jobs → Output beobachten
+3. UI: create organization
+4. UI: create inventory
+5. UI: Editor → "+" → create mountpoint project (directory: ansible03)
+6. UI: add host + set host_vars
+7. UI: Playbooks → "Create template" for the desired playbook
+8. UI: Playbooks → "Run" → enter limit → Run
+9. UI: Views → Jobs → watch output
 ```

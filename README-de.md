@@ -21,7 +21,8 @@ Basiert auf [AWX 24.6.1](https://github.com/ansible/awx) (Apache 2.0).
 | API-Token-Verwaltung | ✗ | ✓ Persönliche OAuth2-Tokens (UI + API) |
 | SSO / Keycloak | optional | ✓ OIDC vorkonfiguriert über Umgebungsvariablen |
 
-Vollständige Schritt-für-Schritt-Dokumentation: **[WORKFLOW-de.md](WORKFLOW-de.md)**
+Vollständige Schritt-für-Schritt-Dokumentation: **[WORKFLOW-de.md](WORKFLOW-de.md)**  
+Remote-Runner-Einrichtung: **[PROXIES-de.md](PROXIES-de.md)**
 
 ## Schnellstart
 

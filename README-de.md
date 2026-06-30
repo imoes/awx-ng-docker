@@ -19,6 +19,7 @@ Basiert auf [AWX 24.6.1](https://github.com/ansible/awx) (Apache 2.0).
 | Root-Passwort-Hashing | ✗ | ✓ sha512crypt, gespeichert in Host-Vars |
 | NetBox-Integration | ✗ | ✓ Location-Reconcile, Inventory-Source-bereit |
 | API-Token-Verwaltung | ✗ | ✓ Persönliche OAuth2-Tokens (UI + API) |
+| Ansible Vault Store | ✗ | ✓ Benannte Vaults, automatisch generierte Passwörter, auto-injiziert beim Job-Start |
 | SSO / Keycloak | optional | ✓ OIDC vorkonfiguriert über Umgebungsvariablen |
 
 Vollständige Schritt-für-Schritt-Dokumentation: **[WORKFLOW-de.md](WORKFLOW-de.md)**  
@@ -135,6 +136,7 @@ Alle awx-ng-Screens sind in die bestehende AWX-Navigation integriert.
 |--------|------|-------------|
 | Runners | `/runner_sites` | Execution Nodes registrieren, Sites zuweisen, Health-Checks |
 | Sites | `/locations` | Standorte verwalten (= AWX Instance Groups); SSH-Credential + Env + ansible.cfg pro Site |
+| Vaults | `/vaults` | Ansible-Vault-Stores verwalten (Key-Value-Paare → verschlüsselte YAML-Datei); Passwörter werden automatisch beim Job-Start injiziert |
 
 ### Editor-Features
 
@@ -224,6 +226,26 @@ POST       /api/v2/runners/deprovision/                  # Runner entfernen
 ```
 POST /api/v2/job_templates/{id}/generate_survey/         # Survey aus Rollen-Defaults
 POST /api/v2/tools/hash_password/                        # sha512crypt-Hash
+```
+
+### Ansible Vault Store
+
+```
+GET    /api/v2/vaults/                                   # Alle Vaults auflisten (ohne Passwort/Variablen)
+POST   /api/v2/vaults/                                   # Vault anlegen (generiert Passwort + AWX-Credential)
+GET    /api/v2/vaults/{id}/                              # Vault mit Klartext-Variablen abrufen
+PATCH  /api/v2/vaults/{id}/                              # Variablen oder Beschreibung ändern
+DELETE /api/v2/vaults/{id}/                              # Vault + AWX-Credential löschen
+POST   /api/v2/vaults/{id}/generate/                     # Verschlüsselte Vault-Datei generieren
+                                                         # Body: {"project_id": N} — schreibt in Projekt
+```
+
+Das Vault-Passwort wird **nie** über die API zurückgegeben. Es liegt in der DB und wird beim
+Job-Start automatisch als AWX Vault-Credential injiziert. Im Playbook:
+
+```yaml
+vars_files:
+  - vault-meine-vault.yml   # Datei wird per POST /api/v2/vaults/{id}/generate/ erstellt
 ```
 
 ### Tokens & MCP

@@ -19,6 +19,7 @@ Based on [AWX 24.6.1](https://github.com/ansible/awx) (Apache 2.0).
 | Root password hashing | ✗ | ✓ sha512crypt, stored in host vars |
 | NetBox integration | ✗ | ✓ Location reconcile, inventory source ready |
 | API token management | ✗ | ✓ Personal OAuth2 tokens (UI + API) |
+| Ansible Vault Store | ✗ | ✓ Named vaults, auto-generated passwords, auto-injected at job start |
 | SSO / Keycloak | optional | ✓ OIDC pre-configured via environment variables |
 
 Full step-by-step documentation: **[WORKFLOW.md](WORKFLOW.md)**  
@@ -135,6 +136,7 @@ All awx-ng screens are integrated into the existing AWX navigation.
 |--------|------|-------------|
 | Runners | `/runner_sites` | Register execution nodes, assign to sites, health checks |
 | Sites | `/locations` | Manage sites (= AWX instance groups); SSH credential + env + ansible.cfg per site |
+| Vaults | `/vaults` | Manage named ansible-vault stores (key-value pairs → encrypted YAML file); passwords auto-injected at job start |
 
 ### Editor features
 
@@ -224,6 +226,26 @@ POST       /api/v2/runners/deprovision/                  # Remove runner
 ```
 POST /api/v2/job_templates/{id}/generate_survey/         # Auto-generate survey from role defaults
 POST /api/v2/tools/hash_password/                        # sha512crypt hash
+```
+
+### Ansible Vault Store
+
+```
+GET    /api/v2/vaults/                                   # List all vaults (no passwords/variables)
+POST   /api/v2/vaults/                                   # Create vault (auto-generates password + AWX credential)
+GET    /api/v2/vaults/{id}/                              # Get vault with plaintext variables
+PATCH  /api/v2/vaults/{id}/                              # Update variables or description
+DELETE /api/v2/vaults/{id}/                              # Delete vault + AWX credential
+POST   /api/v2/vaults/{id}/generate/                     # Generate encrypted vault file
+                                                         # Body: {"project_id": N} — writes to project dir
+```
+
+The vault password is **never** returned by the API. It is stored in the DB and injected
+automatically as an AWX vault credential at job start. Reference the generated file in playbooks:
+
+```yaml
+vars_files:
+  - vault-meine-vault.yml   # file is written by POST /api/v2/vaults/{id}/generate/
 ```
 
 ### Tokens & MCP

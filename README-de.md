@@ -128,7 +128,7 @@ Alle awx-ng-Screens sind in die bestehende AWX-Navigation integriert.
 | Roles | `/roles` | Rollen-Übersicht mit Variablen, Tags, Handlern; manueller Scan |
 | Playbooks | `/playbooks` | Playbook-Liste mit Play-Details (Hosts, Rollen, Tags); Job starten |
 | Editor | `/editor` | Datei-Editor für Playbooks und Rollen (Monaco + YAML-Linting + Git) |
-| API Tokens | `/tokens` | Persönliche OAuth2-Tokens für REST API und MCP |
+| Vaults | `/vaults` | Ansible-Vault-Stores verwalten (Key-Value-Paare → verschlüsselte YAML-Datei); Passwörter werden automatisch beim Job-Start injiziert |
 
 ### Administration
 
@@ -136,7 +136,7 @@ Alle awx-ng-Screens sind in die bestehende AWX-Navigation integriert.
 |--------|------|-------------|
 | Runners | `/runner_sites` | Execution Nodes registrieren, Sites zuweisen, Health-Checks |
 | Sites | `/locations` | Standorte verwalten (= AWX Instance Groups); SSH-Credential + Env + ansible.cfg pro Site |
-| Vaults | `/vaults` | Ansible-Vault-Stores verwalten (Key-Value-Paare → verschlüsselte YAML-Datei); Passwörter werden automatisch beim Job-Start injiziert |
+| API Tokens | `/tokens` | Persönliche OAuth2-Tokens für REST API und MCP |
 
 ### Editor-Features
 

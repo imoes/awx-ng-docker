@@ -44,6 +44,7 @@ COPY custom/ui-build/static/             ${AWX_PKG}/ui/build/static/
 COPY custom/ui-build/static/js/          /var/lib/awx/public/static/js/
 COPY custom/ui-build/static/css/         /var/lib/awx/public/static/css/
 COPY custom/ui-build/static/media/       /var/lib/awx/public/static/media/
+COPY custom/ui-build/static/blockly-media/ /var/lib/awx/public/static/blockly-media/
 
 # ── watchdog + httpx (MCP-Tool-HTTP-Client) ──────────────────────────────────
 RUN /var/lib/awx/venv/awx/bin/pip install --no-cache-dir watchdog==4.0.2 "httpx>=0.27,<1"

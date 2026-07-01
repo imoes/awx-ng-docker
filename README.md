@@ -161,6 +161,10 @@ editor: assemble plays out of blocks — modules, roles, tasks — instead of ha
 
 - **Module catalog**: all 71 `ansible.builtin` modules, auto-generated from `ansible-doc -j` into
   a committed JSON catalog (typed fields: choices → dropdown, bool → checkbox, else → text).
+  Blocks show only **required (marked `*`) + primary** params; the rest are added on demand via
+  an "add parameter…" dropdown, keeping blocks small and easy to connect.
+- **Live search** category filters modules/roles as you type; **New playbook** / **New role**
+  buttons start a blank document.
 - **Roles category**: populated per-project from `GET /api/v2/projects/{id}/roles/` — refreshes
   when you switch projects.
 - **Live YAML preview** updates as you build; **Lint & Save** runs the same YAML/ansible-lint
@@ -174,8 +178,8 @@ editor: assemble plays out of blocks — modules, roles, tasks — instead of ha
   sidecar next to the file; reopening restores the exact same canvas (rather than re-parsing
   the YAML from scratch).
 - **Variables panel**: shows only the variables relevant to the *currently open* document —
-  role variables for the roles used in this playbook/role, plus vault variable names. Drag a
-  variable onto a module field to insert a `{{ variable }}` reference.
+  role variables for the roles used in this playbook/role, plus vault variable names, each with
+  a value/default preview. Drag a variable onto a module field to insert a `{{ variable }}` reference.
 - **3D block style** (geras renderer + classic theme) similar to ioBroker's Blockly editor.
 
 This is a frontend-only feature — no new backend endpoints beyond adding `.json` to the file

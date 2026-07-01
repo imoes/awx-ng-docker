@@ -162,6 +162,10 @@ zu schreiben.
 
 - **Modul-Katalog**: alle 71 `ansible.builtin`-Module, automatisch aus `ansible-doc -j` generiert
   und als JSON committed (typisierte Felder: choices → Dropdown, bool → Checkbox, sonst Text).
+  Blöcke zeigen nur **Pflicht- (mit `*`) + Primär-Parameter**; der Rest wird bei Bedarf über ein
+  „add parameter…"-Dropdown ergänzt — so bleiben die Blöcke klein und leicht verbindbar.
+- **Live-Suche** filtert Module/Rollen beim Tippen; **New playbook** / **New role** starten ein
+  leeres Dokument.
 - **Roles-Kategorie**: pro Projekt befüllt aus `GET /api/v2/projects/{id}/roles/` — aktualisiert
   sich beim Projektwechsel.
 - **Live-YAML-Vorschau** aktualisiert sich beim Bauen; **Lint & Save** prüft mit denselben
@@ -176,8 +180,8 @@ zu schreiben.
   neben der Datei gespeichert — beim erneuten Öffnen erscheint exakt dieselbe Canvas
   (statt die YAML komplett neu zu parsen).
 - **Variablen-Panel**: zeigt nur die für das *aktuell geöffnete* Dokument relevanten Variablen —
-  Rollen-Variablen der im Playbook/der Rolle verwendeten Rollen plus Vault-Variablennamen. Eine
-  Variable auf ein Modul-Feld ziehen fügt eine `{{ variable }}`-Referenz ein.
+  Rollen-Variablen der im Playbook/der Rolle verwendeten Rollen plus Vault-Variablennamen, je mit
+  Wert-/Default-Vorschau. Eine Variable auf ein Modul-Feld ziehen fügt eine `{{ variable }}`-Referenz ein.
 - **3D-Blockstil** (geras-Renderer + Classic-Theme) ähnlich dem Blockly-Editor von ioBroker.
 
 Reines Frontend-Feature — keine neuen Backend-Endpunkte außer `.json` in den erlaubten Dateiendungen

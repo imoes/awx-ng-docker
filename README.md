@@ -129,6 +129,7 @@ All awx-ng screens are integrated into the existing AWX navigation.
 | Playbooks | `/playbooks` | Playbook list with play details (hosts, roles, tags); launch jobs |
 | Editor | `/editor` | File editor for playbooks and roles (Monaco + YAML linting + git) |
 | Vaults | `/vaults` | Manage named ansible-vault stores (key-value pairs → encrypted YAML file); passwords auto-injected at job start |
+| Playbook Builder | `/playbook-builder` | Visual (Blockly) drag-and-drop playbook editor — see below |
 
 ### Administration
 
@@ -152,6 +153,31 @@ All awx-ng screens are integrated into the existing AWX navigation.
 Sites are linked 1:1 to AWX instance groups — creating a site automatically creates the instance group (and deleting a site removes it). System groups (`controlplane`, `default`) are protected.
 
 **Runtime resolution:** AWX picks a runner from the site → per-runner override wins, otherwise the site default is used for SSH credential, environment variables, and ansible.cfg.
+
+### Playbook Builder (visual/Blockly)
+
+A drag-and-drop playbook editor (`/playbook-builder`), similar in spirit to ioBroker's Blockly
+editor: assemble plays out of blocks — modules, roles, tasks — instead of hand-writing YAML.
+
+- **Module catalog**: all 71 `ansible.builtin` modules, auto-generated from `ansible-doc -j` into
+  a committed JSON catalog (typed fields: choices → dropdown, bool → checkbox, else → text).
+- **Roles category**: populated per-project from `GET /api/v2/projects/{id}/roles/` — refreshes
+  when you switch projects.
+- **Live YAML preview** updates as you build; **Lint & Save** runs the same YAML/ansible-lint
+  checks as the file editor before writing to the project.
+- **Import from YAML**: open an *existing* hand-written playbook and it's reconstructed as
+  blocks — recognized modules become typed blocks, roles become role blocks, anything else
+  (modules from other collections, `block:`/`rescue:`, other play-level keys) is preserved
+  verbatim in a raw fallback block or field, so nothing is lost.
+- **Layout persistence**: the visual block arrangement is saved as a `<name>.blockly.json`
+  sidecar next to the playbook, so reopening the builder restores the exact same canvas
+  (rather than re-parsing the YAML from scratch).
+- **Variables panel**: drag a role/vault variable from the right-hand list onto any module
+  field to insert a `{{ variable }}` reference.
+
+This is a frontend-only feature — no new backend endpoints beyond adding `.json` to the file
+editor's allowed suffixes (for the layout sidecar); it reuses the file editor, role, and vault
+endpoints documented below.
 
 ## Custom API Endpoints
 

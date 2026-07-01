@@ -129,6 +129,7 @@ Alle awx-ng-Screens sind in die bestehende AWX-Navigation integriert.
 | Playbooks | `/playbooks` | Playbook-Liste mit Play-Details (Hosts, Rollen, Tags); Job starten |
 | Editor | `/editor` | Datei-Editor für Playbooks und Rollen (Monaco + YAML-Linting + Git) |
 | Vaults | `/vaults` | Ansible-Vault-Stores verwalten (Key-Value-Paare → verschlüsselte YAML-Datei); Passwörter werden automatisch beim Job-Start injiziert |
+| Playbook Builder | `/playbook-builder` | Visueller (Blockly) Drag&Drop-Playbook-Editor — siehe unten |
 
 ### Administration
 
@@ -152,6 +153,32 @@ Alle awx-ng-Screens sind in die bestehende AWX-Navigation integriert.
 Sites sind 1:1 mit AWX Instance Groups verknüpft — beim Anlegen einer Site wird die Instance Group automatisch erstellt (und beim Löschen entfernt). System-Gruppen (`controlplane`, `default`) sind geschützt.
 
 **Auflösung zur Laufzeit:** AWX wählt einen Runner aus der Site → per-Runner-Override gewinnt, sonst Site-Default für SSH-Credential, Umgebungsvariablen und ansible.cfg.
+
+### Playbook Builder (visuell/Blockly)
+
+Ein Drag&Drop-Playbook-Editor (`/playbook-builder`), ähnlich im Ansatz wie der Blockly-Editor von
+ioBroker: Plays werden aus Blöcken zusammengesteckt — Module, Rollen, Tasks — statt YAML von Hand
+zu schreiben.
+
+- **Modul-Katalog**: alle 71 `ansible.builtin`-Module, automatisch aus `ansible-doc -j` generiert
+  und als JSON committed (typisierte Felder: choices → Dropdown, bool → Checkbox, sonst Text).
+- **Roles-Kategorie**: pro Projekt befüllt aus `GET /api/v2/projects/{id}/roles/` — aktualisiert
+  sich beim Projektwechsel.
+- **Live-YAML-Vorschau** aktualisiert sich beim Bauen; **Lint & Save** prüft mit denselben
+  YAML-/ansible-lint-Checks wie der Datei-Editor, bevor gespeichert wird.
+- **Import aus YAML**: ein *bestehendes*, handgeschriebenes Playbook öffnen und es wird als
+  Blöcke rekonstruiert — erkannte Module werden zu typisierten Blöcken, Rollen zu Rollen-Blöcken,
+  alles andere (Module aus anderen Collections, `block:`/`rescue:`, sonstige Play-Level-Keys)
+  bleibt verlustfrei in einem Raw-Fallback-Block bzw. -Feld erhalten.
+- **Layout-Persistenz**: die visuelle Blockanordnung wird als `<name>.blockly.json`-Sidecar
+  neben dem Playbook gespeichert — beim erneuten Öffnen erscheint exakt dieselbe Canvas
+  (statt die YAML komplett neu zu parsen).
+- **Variablen-Panel**: eine Rollen-/Vault-Variable aus der rechten Liste auf ein Modul-Feld
+  ziehen fügt eine `{{ variable }}`-Referenz ein.
+
+Reines Frontend-Feature — keine neuen Backend-Endpunkte außer `.json` in den erlaubten Dateiendungen
+des Datei-Editors (für das Layout-Sidecar); nutzt die unten dokumentierten Datei-, Rollen- und
+Vault-Endpunkte weiter.
 
 ## Custom API-Endpoints
 

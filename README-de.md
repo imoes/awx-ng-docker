@@ -166,15 +166,19 @@ zu schreiben.
   sich beim Projektwechsel.
 - **Live-YAML-Vorschau** aktualisiert sich beim Bauen; **Lint & Save** prüft mit denselben
   YAML-/ansible-lint-Checks wie der Datei-Editor, bevor gespeichert wird.
-- **Import aus YAML**: ein *bestehendes*, handgeschriebenes Playbook öffnen und es wird als
-  Blöcke rekonstruiert — erkannte Module werden zu typisierten Blöcken, Rollen zu Rollen-Blöcken,
-  alles andere (Module aus anderen Collections, `block:`/`rescue:`, sonstige Play-Level-Keys)
-  bleibt verlustfrei in einem Raw-Fallback-Block bzw. -Feld erhalten.
+- **Öffnen-Dialog** (*Open playbook…* / *Open role…*): ein *bestehendes* Playbook oder eine Rolle
+  auswählen und es wird als Blöcke rekonstruiert — erkannte Module werden zu typisierten Blöcken,
+  Rollen zu Rollen-Blöcken, alles andere (Module aus anderen Collections, `block:`/`rescue:`,
+  sonstige Play-Level-Keys) bleibt verlustfrei in einem Raw-Fallback-Block bzw. -Feld erhalten.
+  Beim Öffnen einer Rolle wird deren `tasks/main.yml` als reine Task-Liste (ohne Play-Wrapper)
+  bearbeitet.
 - **Layout-Persistenz**: die visuelle Blockanordnung wird als `<name>.blockly.json`-Sidecar
-  neben dem Playbook gespeichert — beim erneuten Öffnen erscheint exakt dieselbe Canvas
+  neben der Datei gespeichert — beim erneuten Öffnen erscheint exakt dieselbe Canvas
   (statt die YAML komplett neu zu parsen).
-- **Variablen-Panel**: eine Rollen-/Vault-Variable aus der rechten Liste auf ein Modul-Feld
-  ziehen fügt eine `{{ variable }}`-Referenz ein.
+- **Variablen-Panel**: zeigt nur die für das *aktuell geöffnete* Dokument relevanten Variablen —
+  Rollen-Variablen der im Playbook/der Rolle verwendeten Rollen plus Vault-Variablennamen. Eine
+  Variable auf ein Modul-Feld ziehen fügt eine `{{ variable }}`-Referenz ein.
+- **3D-Blockstil** (geras-Renderer + Classic-Theme) ähnlich dem Blockly-Editor von ioBroker.
 
 Reines Frontend-Feature — keine neuen Backend-Endpunkte außer `.json` in den erlaubten Dateiendungen
 des Datei-Editors (für das Layout-Sidecar); nutzt die unten dokumentierten Datei-, Rollen- und

@@ -165,15 +165,18 @@ editor: assemble plays out of blocks — modules, roles, tasks — instead of ha
   when you switch projects.
 - **Live YAML preview** updates as you build; **Lint & Save** runs the same YAML/ansible-lint
   checks as the file editor before writing to the project.
-- **Import from YAML**: open an *existing* hand-written playbook and it's reconstructed as
-  blocks — recognized modules become typed blocks, roles become role blocks, anything else
-  (modules from other collections, `block:`/`rescue:`, other play-level keys) is preserved
-  verbatim in a raw fallback block or field, so nothing is lost.
+- **Open dialog** (*Open playbook…* / *Open role…*): browse and pick an *existing* playbook or
+  role and it's reconstructed as blocks — recognized modules become typed blocks, roles become
+  role blocks, anything else (modules from other collections, `block:`/`rescue:`, other
+  play-level keys) is preserved verbatim in a raw fallback block or field, so nothing is lost.
+  Opening a role edits its `tasks/main.yml` as a bare task list (no play wrapper).
 - **Layout persistence**: the visual block arrangement is saved as a `<name>.blockly.json`
-  sidecar next to the playbook, so reopening the builder restores the exact same canvas
-  (rather than re-parsing the YAML from scratch).
-- **Variables panel**: drag a role/vault variable from the right-hand list onto any module
-  field to insert a `{{ variable }}` reference.
+  sidecar next to the file; reopening restores the exact same canvas (rather than re-parsing
+  the YAML from scratch).
+- **Variables panel**: shows only the variables relevant to the *currently open* document —
+  role variables for the roles used in this playbook/role, plus vault variable names. Drag a
+  variable onto a module field to insert a `{{ variable }}` reference.
+- **3D block style** (geras renderer + classic theme) similar to ioBroker's Blockly editor.
 
 This is a frontend-only feature — no new backend endpoints beyond adding `.json` to the file
 editor's allowed suffixes (for the layout sidecar); it reuses the file editor, role, and vault

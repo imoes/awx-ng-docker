@@ -171,17 +171,32 @@ zu schreiben.
 - **Live-YAML-Vorschau** aktualisiert sich beim Bauen; **Lint & Save** prüft mit denselben
   YAML-/ansible-lint-Checks wie der Datei-Editor, bevor gespeichert wird.
 - **Öffnen-Dialog** (*Open playbook…* / *Open role…*): ein *bestehendes* Playbook oder eine Rolle
-  auswählen und es wird als Blöcke rekonstruiert — erkannte Module werden zu typisierten Blöcken,
-  Rollen zu Rollen-Blöcken, alles andere (Module aus anderen Collections, `block:`/`rescue:`,
-  sonstige Play-Level-Keys) bleibt verlustfrei in einem Raw-Fallback-Block bzw. -Feld erhalten.
-  Beim Öffnen einer Rolle wird deren `tasks/main.yml` als reine Task-Liste (ohne Play-Wrapper)
-  bearbeitet.
-- **Layout-Persistenz**: die visuelle Blockanordnung wird als `<name>.blockly.json`-Sidecar
-  neben der Datei gespeichert — beim erneuten Öffnen erscheint exakt dieselbe Canvas
-  (statt die YAML komplett neu zu parsen).
-- **Variablen-Panel**: zeigt nur die für das *aktuell geöffnete* Dokument relevanten Variablen —
-  Rollen-Variablen der im Playbook/der Rolle verwendeten Rollen plus Vault-Variablennamen, je mit
-  Wert-/Default-Vorschau. Eine Variable auf ein Modul-Feld ziehen fügt eine `{{ variable }}`-Referenz ein.
+  auswählen und es wird als Blöcke rekonstruiert — erkannte Module werden zu typisierten Blöcken
+  (inklusive dokumentierter ansible-doc-Parameter-Aliase, z.B. `dest:`/`name:` statt `path:` bei
+  `file`), Rollen zu Rollen-Blöcken, alles andere (Module aus anderen Collections, `block:`/
+  `rescue:`, sonstige Play-Level-Keys) bleibt verlustfrei in einem Raw-Fallback-Block bzw. -Feld
+  erhalten.
+- **Rollen-Bearbeitung (Reiter Tasks/Handlers/Defaults/Vars)**: eine Rolle besteht aus 4 Dateien
+  (`roles/<name>/{tasks,handlers,defaults,vars}/main.yml`), bearbeitet in **einer**
+  Blockly-Sitzung über Reiter. *New role* legt alle 4 an (auch unberührte, als leere Datei) und
+  *Lint & Save* schreibt alle 4 gleichzeitig — kein manuelles Anlegen von Verzeichnissen nötig.
+  *Open role…* lädt alle 4 Dateien vorab, Reiter-Wechsel ist danach sofort.
+- **Task-Einstellungen als eigene Blöcke**: `when`/`tags`/`notify`/`register`/`loop`/
+  `delegate_to`/`become`/`ignore_errors` sind eigenständige, verkettbare Ein-Zeilen-Blöcke (keine
+  Felder auf dem Modul-Block mehr) — so wird eine `when:`-Bedingung sauber eingebettet dargestellt
+  statt seitlich angedockt.
+- **Bedingungen (`when:`) aus Blöcken bauen**: Vergleiche (`==`/`!=`/`>`/`<`/`in`/…), Jinja-„is"-Tests
+  (`defined`/`changed`/`failed`/…), `and`/`or`/`not` — visuell zusammengesteckt statt Jinja zu
+  tippen. Eine bestehende `when:`-Bedingung wird beim Import automatisch in diese Blöcke zerlegt;
+  alles außerhalb der unterstützten Grammatik (Filter, Funktionsaufrufe) bleibt als Text erhalten.
+- **Variablen als Blockly-Elemente**: neue Variablen per `var`-Block anlegen (Play-`vars:`, oder
+  über den Defaults/Vars-Reiter einer Rolle). Das rechte Panel listet Rollen-/Vault-Variablen
+  sowie ~58 kuratierte `ansible_facts` und ~13 „Magic Variables" (`inventory_hostname`,
+  `group_names`, `hostvars`, …) — auf ein Textfeld gezogen ergibt `{{ name }}`, auf die leere
+  Canvas gezogen einen wiederverwendbaren Variablen-Block.
+- **Layout-Persistenz**: die visuelle Blockanordnung wird als `<name>.blockly.json`-Sidecar neben
+  jeder Datei gespeichert — beim erneuten Öffnen erscheint exakt dieselbe Canvas (statt die YAML
+  komplett neu zu parsen).
 - **3D-Blockstil** (geras-Renderer + Classic-Theme) ähnlich dem Blockly-Editor von ioBroker.
 
 Reines Frontend-Feature — keine neuen Backend-Endpunkte außer `.json` in den erlaubten Dateiendungen

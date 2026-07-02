@@ -186,10 +186,14 @@ editor: assemble plays out of blocks — modules, roles, tasks — instead of ha
   tests (`defined`/`changed`/`failed`/…), `and`/`or`/`not` — composed visually instead of typing
   Jinja. Importing an existing `when:` decomposes it into these blocks automatically; anything
   outside the supported grammar (filters, function calls) is preserved verbatim.
-- **Variables as Blockly elements**: define new variables with a `var` block (play `vars:`, or a
-  role's Defaults/Vars tab). The right-side panel lists role/vault variables plus ~58 curated
-  `ansible_facts` and ~13 "magic variables" (`inventory_hostname`, `group_names`, `hostvars`, …)
-  — drag one onto a text field for `{{ name }}`, or onto blank canvas for a reusable variable block.
+- **Variables as Blockly elements**: define new variables right from the Variables panel's
+  "+ Add variable" form (name + optional value), or with a `var` block (play `vars:`, or a role's
+  Defaults/Vars tab) — either way it appears immediately in the panel's list. The panel also lists
+  role/vault variables plus ~58 curated `ansible_facts` and ~13 "magic variables"
+  (`inventory_hostname`, `group_names`, `hostvars`, …) — drag one onto a text field for
+  `{{ name }}`, or onto blank canvas for a reusable variable block.
+- **Global live search**: a "🔍 Search" toolbox category searches every block across all
+  categories (modules, roles, conditions, task settings, …) in one flyout.
 - **Layout persistence**: the visual block arrangement is saved as a `<name>.blockly.json`
   sidecar next to each file; reopening restores the exact same canvas (rather than re-parsing
   the YAML from scratch).

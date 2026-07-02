@@ -189,11 +189,14 @@ zu schreiben.
   (`defined`/`changed`/`failed`/…), `and`/`or`/`not` — visuell zusammengesteckt statt Jinja zu
   tippen. Eine bestehende `when:`-Bedingung wird beim Import automatisch in diese Blöcke zerlegt;
   alles außerhalb der unterstützten Grammatik (Filter, Funktionsaufrufe) bleibt als Text erhalten.
-- **Variablen als Blockly-Elemente**: neue Variablen per `var`-Block anlegen (Play-`vars:`, oder
-  über den Defaults/Vars-Reiter einer Rolle). Das rechte Panel listet Rollen-/Vault-Variablen
-  sowie ~58 kuratierte `ansible_facts` und ~13 „Magic Variables" (`inventory_hostname`,
-  `group_names`, `hostvars`, …) — auf ein Textfeld gezogen ergibt `{{ name }}`, auf die leere
-  Canvas gezogen einen wiederverwendbaren Variablen-Block.
+- **Variablen als Blockly-Elemente**: neue Variablen direkt über das „+ Add variable"-Formular im
+  Variablen-Panel anlegen (Name + optionaler Wert), oder per `var`-Block (Play-`vars:`, oder über
+  den Defaults/Vars-Reiter einer Rolle) — beides erscheint sofort in der Liste. Das Panel listet
+  außerdem Rollen-/Vault-Variablen sowie ~58 kuratierte `ansible_facts` und ~13 „Magic Variables"
+  (`inventory_hostname`, `group_names`, `hostvars`, …) — auf ein Textfeld gezogen ergibt
+  `{{ name }}`, auf die leere Canvas gezogen einen wiederverwendbaren Variablen-Block.
+- **Globale Live-Suche**: eine „🔍 Search"-Toolbox-Rubrik durchsucht alle Blöcke aus allen
+  Kategorien (Module, Rollen, Bedingungen, Task-Einstellungen, …) in einem gemeinsamen Flyout.
 - **Layout-Persistenz**: die visuelle Blockanordnung wird als `<name>.blockly.json`-Sidecar neben
   jeder Datei gespeichert — beim erneuten Öffnen erscheint exakt dieselbe Canvas (statt die YAML
   komplett neu zu parsen).

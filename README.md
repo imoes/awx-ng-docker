@@ -198,10 +198,18 @@ editor: assemble plays out of blocks — modules, roles, tasks — instead of ha
   sidecar next to each file; reopening restores the exact same canvas (rather than re-parsing
   the YAML from scratch).
 - **3D block style** (geras renderer + classic theme) similar to ioBroker's Blockly editor.
+- **5th "Templates" tab** in role editing: manages `roles/<name>/templates/*.j2` (the `template`
+  module's Jinja2 source files) — a file list + text/Monaco editor right next to Tasks/Handlers/
+  Defaults/Vars, no need to switch to the generic file editor. Create, edit, save (immediately per
+  file, independent of the big "Lint & Save") and delete. Templates don't need a `.j2` suffix —
+  extension-less files (common in real-world roles) can be opened and edited too.
 
-This is a frontend-only feature — no new backend endpoints beyond adding `.json` to the file
-editor's allowed suffixes (for the layout sidecar); it reuses the file editor, role, and vault
-endpoints documented below.
+Mostly a frontend feature — one small backend fix was needed: the file editor endpoint previously
+only allowed a fixed list of suffixes (`.yml`/`.yaml`/`.j2`/`.jinja2`/`.conf`/`.ini`/`.md`/`.txt`/
+`.cfg`/`.json`), which blocked real, extension-less role templates. Files under `roles/*/templates/`
+or `roles/*/files/` are now allowed regardless of suffix (the 512 KB size cap and UTF-8 check remain
+the actual safeguard); otherwise it reuses the file editor, role, and vault endpoints documented
+below.
 
 ## Custom API Endpoints
 

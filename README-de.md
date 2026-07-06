@@ -201,10 +201,19 @@ zu schreiben.
   jeder Datei gespeichert — beim erneuten Öffnen erscheint exakt dieselbe Canvas (statt die YAML
   komplett neu zu parsen).
 - **3D-Blockstil** (geras-Renderer + Classic-Theme) ähnlich dem Blockly-Editor von ioBroker.
+- **5. Reiter „Templates"** in der Rollen-Bearbeitung: verwaltet `roles/<name>/templates/*.j2`
+  (die Jinja2-Quelldateien des `template`-Moduls) — Dateiliste + Text-/Monaco-Editor direkt neben
+  Tasks/Handlers/Defaults/Vars, kein Screen-Wechsel zum generischen Datei-Editor nötig. Anlegen,
+  Bearbeiten, Speichern (sofort pro Datei, unabhängig vom großen „Lint & Save") und Löschen.
+  Templates brauchen keine `.j2`-Endung — auch endungslose Dateien (wie sie viele reale Rollen
+  bereits haben) lassen sich öffnen und bearbeiten.
 
-Reines Frontend-Feature — keine neuen Backend-Endpunkte außer `.json` in den erlaubten Dateiendungen
-des Datei-Editors (für das Layout-Sidecar); nutzt die unten dokumentierten Datei-, Rollen- und
-Vault-Endpunkte weiter.
+Fast reines Frontend-Feature — ein kleiner Backend-Fix war nötig: der Datei-Editor-Endpunkt
+erlaubte bisher nur eine feste Liste von Dateiendungen (`.yml`/`.yaml`/`.j2`/`.jinja2`/`.conf`/
+`.ini`/`.md`/`.txt`/`.cfg`/`.json`) und blockierte damit reale, endungslose Rollen-Templates.
+Dateien unterhalb von `roles/*/templates/` oder `roles/*/files/` sind jetzt unabhängig von der
+Endung erlaubt (Größenlimit von 512 KB und UTF-8-Prüfung bleiben der eigentliche Schutz);
+ansonsten nutzt das Feature die unten dokumentierten Datei-, Rollen- und Vault-Endpunkte weiter.
 
 ## Custom API-Endpoints
 

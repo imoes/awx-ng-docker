@@ -347,6 +347,28 @@ The MCP server (Model Context Protocol) allows AI assistants to control AWX dire
 - Available tools: `awx_run_playbook`, `awx_list_inventories`, `awx_list_projects`,
   `awx_list_project_files`, `awx_read_project_file`, `awx_write_project_file`, and more
 
+### Prose-authoring layer (turn a plain-language request into a playbook)
+
+A group of 14 MCP tools that give an AI client enough *structured, retrievable* context to author
+correct Ansible — designed so a small local model (7B on Ollama/vLLM/llama.cpp) suffices, by
+shrinking the task rather than relying on a large model's memory: retrieval instead of recall,
+schema-constrained tool I/O, lint→retry, and a `--check` dry-run as the safety net (idempotence and
+`--check` are real here — AWX runs real ansible-runner).
+
+- **Context**: `ansible_conventions` (cacheable best-practice text), `get_catalog` (compact digest of
+  all 71 `ansible.builtin` modules), `search_modules` / `search_roles` / `search_playbooks` (semantic
+  search via bge-m3 embeddings, lexical fallback), `get_module` (full typed param spec),
+  `list_roles` / `get_role` (the project's own roles as building blocks).
+- **Authoring loop**: `draft_playbook` (write + lint), `lint_playbook` (structured errors for retry),
+  `check_run` / `check_result` (check-mode dry-run + PLAY RECAP parse — the idempotence check).
+- **Generation cache**: `cache_lookup` / `cache_store` — a validated result for the same or a
+  near-identical (cosine ≥ 0.85) request is reused with zero LLM tokens.
+
+Embeddings are stored as plain JSON + cosine-in-Python (no pgvector). Set `AWX_EMBED_URL` to your
+OpenAI-compatible bge-m3 endpoint (default `https://llamacpp03.ippen.media/embed`). **After deploy
+(and after project syncs) run `docker compose exec awx_web awx-manage mcp_reindex` to build the
+semantic index** — until then, search falls back to lexical keyword matching.
+
 ## Project structure
 
 ```

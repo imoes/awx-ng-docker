@@ -351,6 +351,29 @@ Der MCP-Server (Model Context Protocol) erlaubt KI-Assistenten die direkte Steue
 - Verfügbare Tools: `awx_run_playbook`, `awx_list_inventories`, `awx_list_projects`,
   `awx_list_project_files`, `awx_read_project_file`, `awx_write_project_file`, u.a.
 
+### Prose-Authoring-Schicht (Klartext-Anfrage → Playbook)
+
+14 MCP-Tools, die einem KI-Client genug *strukturierten, abrufbaren* Kontext geben, um korrektes
+Ansible zu bauen — so ausgelegt, dass ein **kleines lokales Modell (7B, Ollama/vLLM/llama.cpp)**
+ausreicht: nicht Kontext ersetzt Modellgröße, sondern die Aufgabe wird verkleinert (RAG statt
+Recall, Schema-constrained Tool-I/O, Lint→Retry, `--check`-Dry-Run als Netz — Idempotenz/`--check`
+sind hier *echt*, da echtes ansible-runner läuft).
+
+- **Kontext**: `ansible_conventions` (cachebarer Best-Practice-Text), `get_catalog` (Kompakt-Digest
+  aller 71 `ansible.builtin`-Module), `search_modules`/`search_roles`/`search_playbooks` (semantisch
+  via bge-m3, lexikalischer Fallback), `get_module` (voller typisierter Param-Spec),
+  `list_roles`/`get_role` (Projekt-Rollen als Bausteine).
+- **Authoring-Schleife**: `draft_playbook` (schreiben + linten), `lint_playbook` (strukturierte
+  Fehler für Retry), `check_run`/`check_result` (Check-Mode-Dry-Run + PLAY-RECAP-Auswertung =
+  Idempotenz-Check).
+- **Generation-Cache**: `cache_lookup`/`cache_store` — ein validiertes Ergebnis für dieselbe oder
+  eine nahezu identische (Cosine ≥ 0.85) Anfrage wird mit null LLM-Tokens wiederverwendet.
+
+Embeddings liegen als JSON + Cosine-in-Python (kein pgvector). `AWX_EMBED_URL` auf den
+OpenAI-kompatiblen bge-m3-Endpoint setzen (Default `https://llamacpp03.ippen.media/embed`). **Nach
+dem Deploy (und nach Projekt-Syncs) `docker compose exec awx_web awx-manage mcp_reindex` ausführen**,
+um den semantischen Index zu bauen — bis dahin greift die lexikalische Suche.
+
 ## Projektstruktur
 
 ```

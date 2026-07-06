@@ -341,11 +341,49 @@ Keycloak setup (by the Keycloak admin):
 
 The MCP server (Model Context Protocol) allows AI assistants to control AWX directly.
 
-- Endpoint: `https://<host>/mcp` (JSON-RPC 2.0)
+- Endpoint: `https://<host>/mcp` (JSON-RPC 2.0 over HTTP POST; the local dev stack serves it at
+  `http://localhost:8052/mcp`)
 - Auth: Bearer token (OAuth2) or Django session
-- Create tokens: **Resources → API Tokens** or `POST /api/v2/tokens/`
-- Available tools: `awx_run_playbook`, `awx_list_inventories`, `awx_list_projects`,
-  `awx_list_project_files`, `awx_read_project_file`, `awx_write_project_file`, and more
+- Available tools: 63 total — the base AWX admin tools (`awx_list_inventories`, `awx_list_projects`,
+  `awx_launch_job_template`, `awx_write_project_file`, …) plus the 14 prose-authoring tools below.
+
+### Talking to the MCP server
+
+It's plain JSON-RPC 2.0 over an HTTP POST with a Bearer token — no SDK required.
+
+**1. Get a token** (UI: **Resources → API Tokens**, or `POST /api/v2/tokens/`, or on the CLI):
+
+```bash
+docker compose exec awx_web awx-manage create_oauth2_token --user admin
+```
+
+**2. `GET /mcp`** is an unauthenticated health check. Everything else is a `POST`.
+
+**3. List the tools** (`tools/list`) — returns each tool's name, description, and JSON input schema:
+
+```bash
+TOKEN=<token from step 1>
+curl -s -X POST http://localhost:8052/mcp \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+**4. Call a tool** (`tools/call`) — the result comes back as JSON text in `result.content[0].text`:
+
+```bash
+curl -s -X POST http://localhost:8052/mcp \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call",
+       "params":{"name":"search_modules","arguments":{"query":"open a firewall port","top_k":3}}}'
+```
+
+**5. Point an AI client at it.** Any MCP-capable client works. For an OpenAI-tool-calling model
+(Ollama / vLLM / llama.cpp), fetch `tools/list`, hand the schemas to the model as `tools`, and
+forward each `tool_call` to `tools/call` — a ~120-line loop is enough (see the acceptance harness
+`scratchpad/accept_7b.py` referenced in `CODE_CARD.md`, which drove a local 14B and a 35B end-to-end
+through prose → draft → lint → check-mode dry run). Tips for small local models: expose only the
+tools you need (a shorter tool list = better selection), and keep a rolling context window since the
+context is shared between prompt and completion.
 
 ### Prose-authoring layer (turn a plain-language request into a playbook)
 
@@ -355,10 +393,12 @@ shrinking the task rather than relying on a large model's memory: retrieval inst
 schema-constrained tool I/O, lint→retry, and a `--check` dry-run as the safety net (idempotence and
 `--check` are real here — AWX runs real ansible-runner).
 
-- **Context**: `ansible_conventions` (cacheable best-practice text), `get_catalog` (compact digest of
-  all 71 `ansible.builtin` modules), `search_modules` / `search_roles` / `search_playbooks` (semantic
-  search via bge-m3 embeddings, lexical fallback), `get_module` (full typed param spec),
-  `list_roles` / `get_role` (the project's own roles as building blocks).
+- **Context**: `ansible_conventions` (cacheable best-practice text), `get_catalog` (compact digest —
+  ansible.builtin in full + a per-namespace count for the rest), `search_modules` / `search_roles` /
+  `search_playbooks` (semantic search via bge-m3 embeddings, lexical fallback), `get_module` (full
+  typed param spec), `list_roles` / `get_role` (the project's own roles as building blocks). The
+  backend catalog covers **738 modules** across `ansible.builtin` + `ansible.posix` +
+  `community.general` + `community.docker` + `community.crypto`.
 - **Authoring loop**: `draft_playbook` (write + lint), `lint_playbook` (structured errors for retry),
   `check_run` / `check_result` (check-mode dry-run + PLAY RECAP parse — the idempotence check).
 - **Generation cache**: `cache_lookup` / `cache_store` — a validated result for the same or a

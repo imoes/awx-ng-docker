@@ -19,9 +19,16 @@ ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
 
-# Full standard Ansible community collection set (~70 collections).
+# Full standard Ansible community collection set (~70 collections), incl. ansible.posix,
+# community.general, community.docker, community.crypto.
 # proxmoxer: required by community.general Proxmox modules.
 # netaddr: required by ansible.utils.ipaddr filter.
+#
+# INVARIANT — same as Dockerfile.ee: remote execution nodes run MCP-authored playbooks via THIS
+# image, so it must carry the same collections the MCP prose-authoring catalog advertises
+# (ansible.builtin + ansible.posix + community.general + community.docker + community.crypto — all in
+# the `ansible==8.7.0` bundle). Keep this line in lockstep with Dockerfile.ee; if the catalog gains a
+# new namespace, install its collection in BOTH images.
 RUN pip install pynetbox requests netaddr proxmoxer "ansible==8.7.0"
 
 # netbox.netbox is not included in the community ansible bundle — install from Galaxy.

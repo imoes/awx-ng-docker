@@ -46,8 +46,8 @@ COPY custom/ui-build/static/css/         /var/lib/awx/public/static/css/
 COPY custom/ui-build/static/media/       /var/lib/awx/public/static/media/
 COPY custom/ui-build/static/blockly-media/ /var/lib/awx/public/static/blockly-media/
 
-# ── watchdog + httpx (MCP-Tool-HTTP-Client) ──────────────────────────────────
-RUN /var/lib/awx/venv/awx/bin/pip install --no-cache-dir watchdog==4.0.2 "httpx>=0.27,<1"
+# ── watchdog + httpx (MCP-Tool-HTTP-Client) + nestedtext (JSON-IR ⇄ NestedText) ───────────────
+RUN /var/lib/awx/venv/awx/bin/pip install --no-cache-dir watchdog==4.0.2 "httpx>=0.27,<1" nestedtext
 
 # ── .pyc-Cache invalidieren ──────────────────────────────────────────────────
 RUN find ${AWX_PKG} -name "*.pyc" -delete && \

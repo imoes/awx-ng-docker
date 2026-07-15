@@ -1117,6 +1117,17 @@ class RunJob(SourceControlMixin, BaseTask):
 
     def build_project_dir(self, job, private_data_dir):
         self.sync_and_copy(job.project, private_data_dir, scm_branch=job.scm_branch)
+        # awx-ng: for a DB-authoritative (imported Manual) project, the JSON-IR store is the source of
+        # truth — materialize it into the per-job project dir so ansible-runner executes the DB
+        # content (the persistent checkout + git are untouched; this is the ephemeral runner copy).
+        # Git/SCM projects are never DB-managed and run from their checkout unchanged.
+        try:
+            from awx.customvars import docstore
+            if job.project_id and docstore.is_db_managed(job.project_id):
+                import os as _os
+                docstore.export_project(job.project_id, _os.path.join(private_data_dir, 'project'))
+        except Exception:
+            logger.exception('awx-ng docstore materialize failed for job %s', job.pk)
 
     def post_run_hook(self, job, status):
         super(RunJob, self).post_run_hook(job, status)

@@ -147,6 +147,29 @@ Alle awx-ng-Screens sind in die bestehende AWX-Navigation integriert.
 - **Datei-Upload** (ZIP/tar.gz werden automatisch entpackt)
 - **Mountpoint-Projekt anlegen** (`+`-Button): bindet ein vorhandenes Verzeichnis als AWX-Projekt ein
 - **Git-Panel** (nur für Git-Repos): Branch-Anzeige, Dirty-/Ahead-Indikatoren, Commit mit Message, Push
+- **Import DB** (nur Manual-Projekte): Projekt in DB-autoritatives Editieren überführen (siehe unten)
+
+### Projekt-Speicher: Dateisystem-first, DB als Opt-in
+
+Leitprinzip: **Das Dateisystem ist auch eine Datenbank — also nutzen wir es.** Wie Projektinhalt
+(Playbooks, Rollen, Inventory, `host_vars/`, `group_vars/`) gespeichert wird, hängt von der
+Projekt-Quelle ab:
+
+- **git/SCM-Projekte → Dateisystem-autoritativ (Default).** Der git-Checkout ist die einzige Wahrheit.
+  Jede UI-Änderung schreibt aufs **Dateisystem** (Datei + git-Commit): der Monaco-Datei-Editor UND der
+  Host-/Group-Variablen-Editor (eine Host-/Group-Var wird nach `host_vars/<host>.yml` /
+  `group_vars/<group>.yml` geschrieben und committet). PostgreSQL hält nur *abgeleitete Caches*
+  (`RoleVariable`/`RoleTag`/`RoleHandler`, `Host.variables`/`Group.variables`), die ein Watchdog bei
+  externen Änderungen (git pull) aus den Dateien versöhnt. Kein Projektinhalt liegt autoritativ doppelt
+  in der DB → **kein Split-Brain**, wenn Dateien auf der Platte geändert werden.
+- **Manual-Projekte → DB als Opt-in.** **Import DB** im Editor parst den Checkout in einen
+  JSON-IR-Dokumentspeicher (jsonb) und schaltet das Projekt DB-autoritativ: der Editor schreibt dann die
+  DB; ein **Export to files**-Button (und ein Job-Start) materialisiert sie zurück auf die Platte für
+  ansible-runner. git-Projekte können nie in diesen Modus.
+
+Format-agnostisch: der JSON-IR-Konverter (`awx/customvars/formats.py`) round-trippt YAML ⇄ JSON ⇄
+**NestedText** (JSON ist die interne Repräsentation; ein führender-Null-Datei-Modus wie `0755` bleibt
+String, `yes/no/on/off` werden nicht typisiert — die NestedText-Typschicht vermeidet YAML-Fallen).
 
 ### Sites & Runner
 
@@ -240,7 +263,14 @@ DELETE /api/v2/projects/{id}/files/content/?path=...     # Datei löschen
 POST   /api/v2/projects/{id}/files/rename/               # Datei umbenennen (git mv)
 POST   /api/v2/projects/{id}/files/upload/               # Datei/Archiv hochladen
 POST   /api/v2/projects/{id}/files/lint/                 # YAML-Validierung
+GET    /api/v2/projects/{id}/docstore/                   # DB-Store-Status {manual, db_managed, doc_count}
+POST   /api/v2/projects/{id}/docstore/                   # {"action":"import"|"export"} (nur Manual)
 ```
+
+Bei git-Projekten lesen/schreiben die Datei-Editor-Endpunkte das Dateisystem (+ git). Bei einem
+importierten Manual-Projekt (`docstore` action=import) lesen/schreiben sie stattdessen den
+JSON-IR-Store; ein Job-Start materialisiert den Store ins Runner-Projektverzeichnis. Siehe
+„Projekt-Speicher" oben.
 
 ### Git-Operationen
 

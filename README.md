@@ -147,6 +147,28 @@ All awx-ng screens are integrated into the existing AWX navigation.
 - **File upload** (ZIP/tar.gz auto-extracted)
 - **Add mountpoint project** (`+` button): register an existing bind-mounted directory as an AWX project
 - **Git panel** (git repos only): branch, dirty/ahead indicators, commit with message, push to origin
+- **Import DB** (Manual projects only): opt a project into DB-authoritative editing (see below)
+
+### Project storage: filesystem-first, DB opt-in
+
+Guiding principle: **the filesystem is also a database — so we use it.** How project content
+(playbooks, roles, inventory, `host_vars/`, `group_vars/`) is stored depends on the project's source:
+
+- **git/SCM projects → filesystem-authoritative (default).** The git checkout is the single source of
+  truth. Every UI edit writes to the **filesystem** (file + git commit): the Monaco file editor AND
+  the Foreman-style host/group variable editor (a host/group var change is written to
+  `host_vars/<host>.yml` / `group_vars/<group>.yml` and committed). PostgreSQL holds only *derived
+  caches* (`RoleVariable`/`RoleTag`/`RoleHandler`, and `Host.variables`/`Group.variables`), which a
+  watchdog reconciles from the files on external change (git pull). No project content is
+  authoritatively duplicated in the DB → **no split-brain** when files change on disk.
+- **Manual projects → DB opt-in.** Click **Import DB** in the editor to parse the checkout into a
+  JSON-IR document store (jsonb) and switch the project to DB-authoritative: the editor then writes
+  the DB, an **Export to files** button (and a job launch) materializes it back to disk for
+  ansible-runner. Git projects can never enter this mode.
+
+Format-agnostic: the JSON-IR converter (`awx/customvars/formats.py`) round-trips YAML ⇄ JSON ⇄
+**NestedText** (JSON is the internal representation; a leading-zero file mode like `0755` stays a
+string, and `yes/no/on/off` are not coerced — the NestedText typing avoids YAML's footguns).
 
 ### Sites & Runners
 
@@ -236,7 +258,13 @@ DELETE /api/v2/projects/{id}/files/content/?path=...     # Delete file
 POST   /api/v2/projects/{id}/files/rename/               # Rename/move file (git mv)
 POST   /api/v2/projects/{id}/files/upload/               # Upload file or archive
 POST   /api/v2/projects/{id}/files/lint/                 # YAML validation
+GET    /api/v2/projects/{id}/docstore/                   # DB-store status {manual, db_managed, doc_count}
+POST   /api/v2/projects/{id}/docstore/                   # {"action":"import"|"export"} (Manual only)
 ```
+
+For a git project the file-editor endpoints read/write the filesystem (+ git). For a Manual project
+that has been imported (`docstore` action=import), they read/write the JSON-IR store instead; a job
+launch materializes the store to the runner's project dir. See "Project storage" above.
 
 ### Git operations
 
